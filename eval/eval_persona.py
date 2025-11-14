@@ -54,31 +54,16 @@ def sample(
         tokenized_batch = tokenizer(batch, return_tensors="pt", padding=True)
         tokenized_batch = {k: v.to(model.device) for k, v in tokenized_batch.items()}
         
-        # 3. Sinh text với hoặc không có steering
-        if coef != 0 and vector is not None and layer is not None:
-            with ActivationSteerer(model, vector, coeff=coef, layer_idx=layer-1, positions=steering_type):
-                with torch.no_grad():
-                    output = model.generate(
-                        **tokenized_batch,
-                        do_sample=(temperature > 0),
-                        temperature=temperature,
-                        top_p=top_p,
-                        max_new_tokens=max_tokens,
-                        min_new_tokens=min_tokens,
-                        use_cache=True
-                    )
-        else:
-            # Không có steering
-            with torch.no_grad():
-                output = model.generate(
-                    **tokenized_batch,
-                    do_sample=(temperature > 0),
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_new_tokens=max_tokens,
-                    min_new_tokens=min_tokens,
-                    use_cache=True
-                )
+        with ActivationSteerer(model, vector, coeff=coef, layer_idx=layer-1, positions=steering_type) if coef != 0 and vector is not None and layer is not None else torch.no_grad():
+        output = model.generate(
+            **tokenized_batch,
+            do_sample=(temperature > 0),
+            temperature=temperature,
+            top_p=top_p,
+            max_new_tokens=max_tokens,
+            min_new_tokens=min_tokens,
+            use_cache=True
+        )
         
         prompt_len = tokenized_batch["input_ids"].shape[1]
         output = [tokenizer.decode(o[prompt_len:], skip_special_tokens=True) for o in output]
