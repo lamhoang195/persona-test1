@@ -32,7 +32,7 @@ def load_jsonl(path):
 def sample(
         model, tokenizer, conversations,
         coef=0, vector=None, layer=None, 
-        bs=2, top_p=1, max_tokens=1024, 
+        bs=20, top_p=1, max_tokens=1024, 
         temperature=1, min_tokens=1, 
         steering_type="response",
         lora_path=None
