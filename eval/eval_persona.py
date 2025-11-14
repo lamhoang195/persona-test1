@@ -303,7 +303,7 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
         lora_path = None
         vector = torch.load(vector_path, weights_only=False)[layer]
     else:
-        model, tokenizer, lora_path = load_model(model)
+        model, tokenizer = load_model(model)
         vector = None
         
     questions = load_persona_questions(
