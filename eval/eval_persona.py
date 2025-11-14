@@ -55,15 +55,15 @@ def sample(
         tokenized_batch = {k: v.to(model.device) for k, v in tokenized_batch.items()}
         
         with ActivationSteerer(model, vector, coeff=coef, layer_idx=layer-1, positions=steering_type) if coef != 0 and vector is not None and layer is not None else torch.no_grad():
-        output = model.generate(
-            **tokenized_batch,
-            do_sample=(temperature > 0),
-            temperature=temperature,
-            top_p=top_p,
-            max_new_tokens=max_tokens,
-            min_new_tokens=min_tokens,
-            use_cache=True
-        )
+            output = model.generate(
+                **tokenized_batch,
+                do_sample=(temperature > 0),
+                temperature=temperature,
+                top_p=top_p,
+                max_new_tokens=max_tokens,
+                min_new_tokens=min_tokens,
+                use_cache=True
+            )
         
         prompt_len = tokenized_batch["input_ids"].shape[1]
         output = [tokenizer.decode(o[prompt_len:], skip_special_tokens=True) for o in output]
