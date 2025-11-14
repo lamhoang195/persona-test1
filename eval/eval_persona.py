@@ -298,12 +298,14 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
     else:
         temperature = 1.0 # Ngược lại thì dùng sampling với temperature 1.0
 
+    lora_path = None  # ✅ Khởi tạo trước
+
     if coef != 0:
         model, tokenizer = load_model(model)
         lora_path = None
         vector = torch.load(vector_path, weights_only=False)[layer]
     else:
-        model, tokenizer = load_model(model)
+        model, tokenizer, lora_path = load_model_basic(model)
         vector = None
         
     questions = load_persona_questions(
