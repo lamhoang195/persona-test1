@@ -123,7 +123,7 @@ class Question():
             self, model, tokenizer, coef, 
             vector=None, layer=None, 
             max_tokens=1024, 
-            n_per_question=100, 
+            n_per_question=20, 
             steering_type="response", 
         ):
         paraphrases, conversations = self.get_input(n_per_question)
@@ -150,7 +150,7 @@ class Question():
     async def eval_batched(
         questions: List["Question"], model, tokenizer, coef, 
         vector=None, layer=None, 
-        n_per_question=100, 
+        n_per_question=20, 
         max_concurrent_judges=2, 
         max_tokens=1024, 
         steering_type="response"
@@ -280,7 +280,7 @@ def load_persona_questions(trait, temperature=1, persona_instructions_type=None,
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1024, n_per_question=2, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1024, n_per_question=20, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.\n")
