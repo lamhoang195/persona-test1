@@ -322,7 +322,7 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 questions, model, tokenizer,coef, 
                 vector, layer, n_per_question, 
                 max_concurrent_judges, max_tokens, 
-                steering_type=steering_type, lora_path=lora_path
+                steering_type=steering_type
             )
         )
         outputs = pd.concat(outputs_list)
@@ -334,7 +334,7 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                     question.eval(
                         model, tokenizer,coef, vector, 
                         layer, max_tokens, n_per_question, 
-                        steering_type=steering_type, lora_path=lora_path
+                        steering_type=steering_type
                     )
                 )
             )
