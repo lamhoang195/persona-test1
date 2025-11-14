@@ -8,11 +8,10 @@ import logging
 import pandas as pd
 
 from tqdm import tqdm
-from typing import List
-from judge_gemini import GeminiJudge
 from tqdm import trange
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from judge_gemini import GeminiJudge
 from activation_steer import ActivationSteerer
 from models.model_utils import ModelUtils
 from models.adapter_finetune import load_model_basic, load_model
@@ -80,7 +79,7 @@ class Question():
             temperature: float = 1,
             system: str = None, 
             judge: str = "gemini-2.5-flash",
-            judge_eval_type: str = "0_100",
+            judge_eval_type: str = "0_100", 
             **ignored_extra_args
         ):
         self.id = id
@@ -109,7 +108,8 @@ class Question():
             vector=None, layer=None, 
             max_tokens=1000, 
             n_per_question=100, 
-            steering_type="response", 
+            steering_type="response",
+            lora_path=None 
         ):
         paraphrases, conversations = self.get_input(n_per_question)
         prompts, answers = sample(
@@ -117,10 +117,11 @@ class Question():
             coef, vector, layer,
             temperature=self.temperature,
             max_tokens=max_tokens,
-            steering_type=steering_type
+            steering_type=steering_type,
+            lora_path=lora_path
         )
         df = pd.DataFrame([
-            dict(question=question,prompt=prompt, answer=answer, question_id=self.id)
+            dict(question=question, prompt=prompt, answer=answer, question_id=self.id)
             for question, answer, prompt in zip(paraphrases, answers, prompts)
         ])
         for score, judge in self.judges.items():
@@ -133,12 +134,13 @@ class Question():
     
     @staticmethod
     async def eval_batched(
-        questions: List["Question"], model, tokenizer, coef, 
+        questions, model, tokenizer, coef, 
         vector=None, layer=None, 
         n_per_question=100, 
         max_concurrent_judges=2, 
         max_tokens=1000, 
-        steering_type="response"
+        steering_type="response",
+        lora_path=None
     ):
         # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
         all_paraphrases = []
@@ -157,9 +159,10 @@ class Question():
         prompts, answers = sample(
             model, tokenizer, all_conversations,
             coef, vector, layer,
-            temperature=questions[0].temperature,  # giả định nhiệt độ giống nhau
+            temperature=questions[0].temperature, 
             max_tokens=max_tokens,
-            steering_type=steering_type
+            steering_type=steering_type,
+            lora_path=lora_path
         )
 
         # 3. Chuẩn bị khung dữ liệu cho từng câu hỏi
@@ -198,10 +201,7 @@ class Question():
                 result = await judge(question=q_text, answer=answer)
                 return task_idx, result
 
-        tasks = [
-            run_with_semaphore(idx, judge, q_text, ans)
-            for idx, (judge, q_text, ans) in enumerate(all_tasks)
-        ]
+        tasks = [run_with_semaphore(idx, judge, q_text, ans) for idx, (judge, q_text, ans) in enumerate(all_tasks)]
 
         with tqdm(total=len(tasks), desc="Judge evaluations") as pbar:
             for coro in asyncio.as_completed(tasks):
@@ -235,34 +235,30 @@ def load_persona_questions(
     raw_questions = trait_data["questions"]
     questions = []
     for i, question in enumerate(raw_questions):
-        if persona_instructions_type is not None:
+        if persona_instructions_type:
             persona_instructions = [x[persona_instructions_type] for x in trait_data["instruction"]]
             for k, instruction in enumerate(persona_instructions):
-                if assistant_name is None:
-                    if persona_instructions_type == "pos":
-                        assistant_name = trait
-                    else:
-                        assistant_name = "helpful"
-                system = f"You are {a_or_an(assistant_name)} {assistant_name} assistant. {instruction}"
+                name = assistant_name or (trait if persona_instructions_type == "pos" else "helpful")
+                system = f"You are {a_or_an(name)} {name} assistant. {instruction}"
                 questions.append(
                     Question(
-                        paraphrases=[question], 
-                        id=f"{trait}_{i}_{persona_instructions_type}_{k}", 
-                        judge_prompts=judge_prompts, 
-                        judge=judge_model, 
-                        temperature=temperature, 
-                        system=system, 
-                        judge_eval_type=eval_type 
+                        paraphrases=[question],
+                        id=f"{trait}_{i}_{persona_instructions_type}_{k}",
+                        judge_prompts=judge_prompts,
+                        judge=judge_model,
+                        temperature=temperature,
+                        system=system,
+                        judge_eval_type=eval_type
                     )
                 )
         else:
             questions.append(
                 Question(
-                    paraphrases=[question], 
-                    id=f"{trait}_{i}", 
-                    judge_prompts=judge_prompts, 
-                    judge=judge_model, 
-                    temperature=temperature, 
+                    paraphrases=[question],
+                    id=f"{trait}_{i}",
+                    judge_prompts=judge_prompts,
+                    judge=judge_model,
+                    temperature=temperature,
                     judge_eval_type=eval_type
                 )
             )
@@ -271,7 +267,7 @@ def load_persona_questions(
 def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=10, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
-        print(f"Output path '{output_path}' already exists — skipping evaluation.\n")
+        print(f"Output path '{output_path}' already exists — skipping evaluation.")
         df = pd.read_csv(output_path)
         for trait in [trait , "coherence"]:
             print(f"{trait}:  {df[trait].mean():.2f} +- {df[trait].std():.2f}")
@@ -281,12 +277,7 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    if n_per_question == 1:
-        temperature = 0.0 # Nếu chỉ lấy 1 câu trả lời thì không cần sampling
-    else:
-        temperature = 1.0 # Ngược lại thì dùng sampling với temperature 1.0
-
-    lora_path = None  # ✅ Khởi tạo trước
+    temperature = 0.0 if n_per_question == 1 else 1.0
 
     if coef != 0:
         model, tokenizer = load_model(model)
@@ -310,7 +301,8 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 questions, model, tokenizer,coef, 
                 vector, layer, n_per_question, 
                 max_concurrent_judges, max_tokens, 
-                steering_type=steering_type
+                steering_type=steering_type,
+                lora_path=lora_path
             )
         )
         outputs = pd.concat(outputs_list)
@@ -322,7 +314,8 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                     question.eval(
                         model, tokenizer,coef, vector, 
                         layer, max_tokens, n_per_question, 
-                        steering_type=steering_type
+                        steering_type=steering_type,
+                        lora_path=lora_path
                     )
                 )
             )
