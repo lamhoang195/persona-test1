@@ -155,10 +155,6 @@ class Question():
         max_tokens=1024, 
         steering_type="response"
     ):
-        """
-        Batched version of `eval` to process multiple `Question` instances in one pass.
-        Returns: List of DataFrames, one per question.
-        """
         # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
         all_paraphrases = []
         all_conversations = []
@@ -238,12 +234,19 @@ class Question():
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
-def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gpt-4.1-mini-2025-04-14", eval_type="0_100", version="eval"):
+def load_persona_questions(
+        trait, temperature=1, 
+        persona_instructions_type=None, 
+        assistant_name=None, 
+        judge_model="gemini-2.5-flash", 
+        eval_type="0_100", version="eval"
+):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
     judge_prompts = {}
-    prompt_template = trait_data["eval_prompt"]
-    judge_prompts[trait] = prompt_template
-    judge_prompts["coherence"] = Prompts[f"coherence_{eval_type}"]
+    judge_prompts = {
+        trait: trait_data["eval_prompt"],
+        "coherence": Prompts[f"coherence_{eval_type}"]
+    }
     raw_questions = trait_data["questions"]
     questions = []
     for i, question in enumerate(raw_questions):
@@ -280,7 +283,7 @@ def load_persona_questions(trait, temperature=1, persona_instructions_type=None,
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1024, n_per_question=100, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1024, n_per_question=10, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.\n")
