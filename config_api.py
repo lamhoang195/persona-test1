@@ -30,7 +30,7 @@ class Config:
         
         # Initialize credentials
         self._openai_api_key = None
-        self._gemini_api_key = None
+        self._gemini_api_keys = None
         self._hf_token = None
         self._wandb_project = None
         
