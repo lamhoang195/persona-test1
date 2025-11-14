@@ -32,7 +32,7 @@ def load_jsonl(path):
 def sample(
         model, tokenizer, conversations,
         coef=0, vector=None, layer=None, 
-        bs=20, top_p=1, max_tokens=1024, 
+        bs=20, top_p=1, max_tokens=1000, 
         temperature=1, min_tokens=1, 
         steering_type="response",
         lora_path=None
@@ -107,7 +107,7 @@ class Question():
     async def eval(
             self, model, tokenizer, coef, 
             vector=None, layer=None, 
-            max_tokens=1024, 
+            max_tokens=1000, 
             n_per_question=100, 
             steering_type="response", 
         ):
@@ -137,7 +137,7 @@ class Question():
         vector=None, layer=None, 
         n_per_question=100, 
         max_concurrent_judges=2, 
-        max_tokens=1024, 
+        max_tokens=1000, 
         steering_type="response"
     ):
         # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
@@ -268,7 +268,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1024, n_per_question=10, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=10, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.\n")
