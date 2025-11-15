@@ -120,6 +120,7 @@ class Question():
             steering_type=steering_type,
             lora_path=lora_path
         )
+        
         df = pd.DataFrame([
             dict(question=question, prompt=prompt, answer=answer, question_id=self.id)
             for question, answer, prompt in zip(paraphrases, answers, prompts)
@@ -140,7 +141,8 @@ class Question():
         max_concurrent_judges=2, 
         max_tokens=1000, 
         steering_type="response",
-        lora_path=None
+        lora_path=None,
+        output_generate_path=None
     ):
         # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
         all_paraphrases = []
@@ -164,6 +166,21 @@ class Question():
             steering_type=steering_type,
             lora_path=lora_path
         )
+
+        # Lưu kết quả generate ra file ngay sau khi generate xong
+        if output_generate_path:
+            generate_output_path = output_generate_path.replace('.csv', '_generated_only.csv')
+            os.makedirs(os.path.dirname(generate_output_path) if os.path.dirname(generate_output_path) else '.', exist_ok=True)
+            
+            # Tạo DataFrame với kết quả generate
+            generate_df = pd.DataFrame({
+                'question': all_paraphrases,
+                'prompt': prompts,
+                'answer': answers,
+                'question_index': question_indices
+            })
+            generate_df.to_csv(generate_output_path, index=False)
+            print(f"✅ Saved generated responses to: {generate_output_path}")
 
         # 3. Chuẩn bị khung dữ liệu cho từng câu hỏi
         question_dfs = [pd.DataFrame(columns=["question", "prompt", "answer", "question_id"]) for _ in questions]
@@ -264,7 +281,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False, output_generate_path=None):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
@@ -293,6 +310,10 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
         assistant_name=assistant_name, 
         judge_model=judge_model, version=version
     )
+
+    # Tự động tạo output_generate_path từ output_path nếu không được cung cấp
+    if output_generate_path is None:
+        output_generate_path = output_path.replace('.csv', '_generated_only.csv')
     
     if batch_process:
         print(f"Batch processing {len(questions)} '{trait}' questions...")
@@ -302,7 +323,8 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 vector, layer, n_per_question, 
                 max_concurrent_judges, max_tokens, 
                 steering_type=steering_type,
-                lora_path=lora_path
+                lora_path=lora_path,
+                output_generate_path=output_generate_path
             )
         )
         outputs = pd.concat(outputs_list)
