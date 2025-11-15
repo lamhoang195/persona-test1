@@ -78,7 +78,7 @@ class Question():
             judge_prompts: dict,
             temperature: float = 1,
             system: str = None, 
-            judge: str = "gemini-2.5-flash",
+            judge: str = "gemini-2.5-pro",
             judge_eval_type: str = "0_100", 
             **ignored_extra_args
         ):
@@ -209,22 +209,48 @@ class Question():
                     all_task_indices.append((q_idx, metric, row_idx))
 
         # 5. Chạy judge song song có giới hạn số lượng
-        print(f"Evaluating {len(all_tasks)} outputs (with max {max_concurrent_judges} concurrent requests)...")
+        print(f"Evaluating {len(all_tasks)} outputs (with max {max_concurrent_judges} concurrent requests per batch)...")
         all_results = [None] * len(all_tasks)
-        semaphore = asyncio.Semaphore(max_concurrent_judges)
+        
+        # Chia tasks thành batches, mỗi batch có max_concurrent_judges tasks
+        batch_size = max_concurrent_judges
+        task_batches = [
+            all_tasks[i:i + batch_size] 
+            for i in range(0, len(all_tasks), batch_size)
+        ]
+        
+        print(f"Divided into {len(task_batches)} batches ({batch_size} requests per batch)...")
+        
+        async def run_judge(task_idx, judge, q_text, answer):
+            result = await judge(question=q_text, answer=answer)
+            return task_idx, result
 
-        async def run_with_semaphore(task_idx, judge, q_text, answer):
-            async with semaphore:
-                result = await judge(question=q_text, answer=answer)
-                return task_idx, result
-
-        tasks = [run_with_semaphore(idx, judge, q_text, ans) for idx, (judge, q_text, ans) in enumerate(all_tasks)]
-
-        with tqdm(total=len(tasks), desc="Judge evaluations") as pbar:
-            for coro in asyncio.as_completed(tasks):
-                task_idx, result = await coro
-                all_results[task_idx] = result
-                pbar.update(1)
+        # Xử lý từng batch, đợi 1 phút giữa các batch
+        batch_start_idx = 0
+        with tqdm(total=len(all_tasks), desc="Judge evaluations") as pbar:
+            for batch_idx, batch_tasks in enumerate(task_batches):
+                if batch_idx > 0:  # Không đợi trước batch đầu tiên
+                    print(f"\n⏳ Waiting 60 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
+                    await asyncio.sleep(60)  # Đợi 1 phút
+                
+                print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
+                
+                # Tạo tasks cho batch hiện tại với đúng global index
+                batch_task_coros = [
+                    run_judge(
+                        batch_start_idx + local_idx, judge, q_text, ans
+                    ) for local_idx, (judge, q_text, ans) in enumerate(batch_tasks)
+                ]
+                
+                # Xử lý batch này (chạy đồng thời max_concurrent_judges requests)
+                batch_results = await asyncio.gather(*batch_task_coros)
+                
+                # Gán kết quả vào all_results
+                for task_idx, result in batch_results:
+                    all_results[task_idx] = result
+                    pbar.update(1)
+                
+                batch_start_idx += len(batch_tasks)
 
         # 6. Gán kết quả chấm điểm vào từng DataFrame
         for task_idx, result in enumerate(all_results):
@@ -240,7 +266,7 @@ def load_persona_questions(
         trait, temperature=1, 
         persona_instructions_type=None, 
         assistant_name=None, 
-        judge_model="gemini-2.5-flash", 
+        judge_model="gemini-2.5-pro", 
         eval_type="0_100", version="eval"
 ):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
@@ -281,7 +307,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False, output_generate_path=None):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=2, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-pro", version="extract", overwrite=False, output_generate_path=None):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
