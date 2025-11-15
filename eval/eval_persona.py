@@ -256,9 +256,13 @@ class Question():
                         print(f"⚠️ Exception in task {task_idx}: {result_or_exc}")
                         all_results[task_idx] = None
                     else:
-                        task_idx_from_result, result = result_or_exc
-                        all_results[task_idx_from_result] = result
-                    pbar.update(1)
+                        try:
+                            task_idx_from_result, result = result_or_exc
+                            all_results[task_idx_from_result] = result
+                        except (ValueError, TypeError) as e:
+                            print(f"⚠️ Error unpacking result for task {task_idx}: {e}, result: {result_or_exc}")
+                            all_results[task_idx] = None
+                    pbar.update(1)  # Luôn update, bất kể có exception hay không
                 
                 batch_start_idx += len(batch_tasks)
 
