@@ -54,14 +54,27 @@ class GeminiJudge:
 
             logprobs_result = response.candidates[0].logprobs_result
             if not logprobs_result or not logprobs_result.top_logprobs:
+                # Request thành công nhưng không có logprobs - vẫn tính vào quota
+                gemini_key_manager.increment()
                 return {}
 
             # top_logprobs: List[List[TopLogProb]]
             top = logprobs_result.top_logprobs[0]
+            gemini_key_manager.increment()  # Chỉ increment khi request thành công
             return {token.token: math.exp(token.logprob) for token in top}
 
         except Exception as e:
+            error_msg = str(e)
             print(f"⚠️ Gemini logprob error: {e}")
+            
+            # Kiểm tra nếu là lỗi quota (429)
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                print(f"❌ Quota exceeded! Stop processing.")
+                raise  # Raise lại để dừng quá trình
+            
+            # Với lỗi khác (như 400 về logprobs), vẫn trả về {} nhưng KHÔNG increment
+            # Vì request vẫn được tính vào quota ở phía API
+            # Nhưng chúng ta không muốn double count trong counter
             return {}
 
     async def _query_full_text(self, prompt: str) -> str:
