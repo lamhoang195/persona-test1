@@ -29,7 +29,6 @@ class GeminiJudge:
 
     async def judge(self, **kwargs):
         prompt = self.prompt_template.format(**kwargs)
-        gemini_key_manager.reset_daily_usage()
         gemini_key_manager.increment()
 
         if self.eval_type == "binary_text":
