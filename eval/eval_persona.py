@@ -243,11 +243,21 @@ class Question():
                 ]
                 
                 # Xử lý batch này (chạy đồng thời max_concurrent_judges requests)
-                batch_results = await asyncio.gather(*batch_task_coros)
+                batch_results = await asyncio.gather(*batch_task_coros, return_exceptions=True)
+                
+                # Debug: Kiểm tra số lượng kết quả
+                if len(batch_results) != len(batch_tasks):
+                    print(f"⚠️ Warning: Expected {len(batch_tasks)} results but got {len(batch_results)}")
                 
                 # Gán kết quả vào all_results
-                for task_idx, result in batch_results:
-                    all_results[task_idx] = result
+                for idx, result_or_exc in enumerate(batch_results):
+                    task_idx = batch_start_idx + idx
+                    if isinstance(result_or_exc, Exception):
+                        print(f"⚠️ Exception in task {task_idx}: {result_or_exc}")
+                        all_results[task_idx] = None
+                    else:
+                        task_idx_from_result, result = result_or_exc
+                        all_results[task_idx_from_result] = result
                     pbar.update(1)
                 
                 batch_start_idx += len(batch_tasks)
