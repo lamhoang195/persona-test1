@@ -4,20 +4,6 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import google.generativeai as genai
 
-# # config = setup_credentials()
-# # genai.configure(api_key=config.gemini_api_keys[0])
-
-# try:
-#     PROJECT_ID = "YOUR-PROJECT-ID"  # 👈 THAY THẾ BẰNG PROJECT ID CỦA BẠN
-#     LOCATION = "us-central1"       # 👈 THAY THẾ BẰNG REGION (ví dụ: us-central1)
-    
-#     vertexai.init(project=PROJECT_ID, location=LOCATION)
-# except Exception as e:
-#     print(f"Lỗi khi khởi tạo Vertex AI. Bạn đã cài đặt 'gcloud' và xác thực chưa?")
-#     print(f"Chạy: gcloud auth application-default login")
-#     print(f"Lỗi gốc: {e}")
-#     # Thoát nếu không thể khởi tạo
-#     exit(1)
 
 class GeminiJudge:
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):

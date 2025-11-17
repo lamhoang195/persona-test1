@@ -23,11 +23,14 @@ class Config:
     """Configuration management for API keys and tokens."""
     
     def __init__(self):
-        # load_env_file() # Sẽ không gọi ở đây, Kaggle sẽ nạp env
+        load_env_file()
+        # self._openai_api_key = None
+        # self._gemini_api_keys = None
+        # self._vertex_api_key = None
         self._hf_token = None
         self._wandb_project = None
-        self._vertex_project_id = None # <-- THÊM
-        self._vertex_location = None # <-- THÊM
+        self._vertex_project_id = None
+        self._vertex_location = None
         
     # @property
     # def openai_api_key(self) -> str:
@@ -57,11 +60,11 @@ class Config:
     #     """Get Vertex AI API key from environment variables."""
     #     if self._vertex_api_key is None:
     #         self._vertex_api_key = os.environ.get('VERTEX_API_KEY')
-    #         if not self._vertex_api_key:
-    #             raise ValueError(
-    #                 "VERTEX_API_KEY not found in environment variables. "
-    #                 "Please set it in your .env file or environment."
-    #             )
+    #         # if not self._vertex_api_key:
+    #         #     raise ValueError(
+    #         #         "VERTEX_API_KEY not found in environment variables. "
+    #         #         "Please set it in your .env file or environment."
+    #         #     )
     #     return self._vertex_api_key
     
     @property
@@ -69,11 +72,11 @@ class Config:
         """Get HuggingFace token from environment variables."""
         if self._hf_token is None:
             self._hf_token = os.environ.get('HF_TOKEN')
-            # if not self._hf_token:
-            #     raise ValueError(
-            #         "HF_TOKEN not found in environment variables. "
-            #         "Please set it in your .env file or environment."
-            #     )
+            if not self._hf_token:
+                raise ValueError(
+                    "HF_TOKEN not found in environment variables. "
+                    "Please set it in your .env file or environment."
+                )
         return self._hf_token
     
     @property
@@ -83,7 +86,6 @@ class Config:
             self._wandb_project = os.environ.get('WANDB_PROJECT', 'persona-vectors')
         return self._wandb_project
     
-    # ----- THÊM 2 HÀM NÀY -----
     @property
     def vertex_project_id(self) -> str:
         """Get Vertex AI Project ID from environment variables."""
@@ -101,20 +103,26 @@ class Config:
             if not self._vertex_location:
                 raise ValueError("VERTEX_LOCATION not found...")
         return self._vertex_location
-    # --------------------------
     
     def setup_environment(self) -> None:
-        # ... (giữ nguyên)
+        # os.environ['OPENAI_API_KEY'] = self.openai_api_key
+        # os.environ['GOOGLE_API_KEYS'] = ','.join(self.gemini_api_keys)
+        # os.environ['VERTEX_API_KEY'] = self.vertex_api_key
         os.environ['HF_TOKEN'] = self.hf_token
         os.environ['WANDB_PROJECT'] = self.wandb_project
-        # Không cần set project/location ở đây
+        os.environ['VERTEX_PROJECT_ID'] = self.vertex_project_id
+        os.environ['VERTEX_LOCATION'] = self.vertex_location
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gen-lang-client-0804124651-caafac1fdb49.json")
+
     
     def validate_credentials(self) -> bool:
-        # ... (giữ nguyên, thêm 2 cái mới)
         try:
+            # _ = self.openai_api_key
+            # _ = self.gemini_api_keys
+            # _ = self.vertex_api_key
             _ = self.hf_token
-            _ = self.vertex_project_id # <-- THÊM
-            _ = self.vertex_location   # <-- THÊM
+            _ = self.vertex_project_id 
+            _ = self.vertex_location   
             return True
         except ValueError as e:
             warnings.warn(f"Credential validation failed: {e}")
