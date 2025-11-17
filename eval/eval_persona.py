@@ -6,6 +6,7 @@ import random
 import asyncio
 import logging
 import pandas as pd
+import vertexai
 
 from tqdm import tqdm
 from tqdm import trange
@@ -23,6 +24,28 @@ logging.getLogger("httpx").setLevel(logging.ERROR)
 
 # Set up credentials and environment
 config = setup_credentials()
+
+try:
+    config = setup_credentials()
+except RuntimeError as e:
+    print(f"Lỗi credentials: {e}")
+    print("Hãy chắc chắn bạn đã nạp Kaggle Secrets ở Cell 1.")
+    exit(1) # Thoát nếu thiếu credentials
+
+# 🔥 KHỞI TẠO VERTEX AI (SAU KHI ĐÃ CÓ CONFIG)
+try:
+    vertexai.init(
+        project=config.vertex_project_id, 
+        location=config.vertex_location
+    )
+    print("✅ Vertex AI đã khởi tạo thành công (từ main.py).")
+except Exception as e:
+    print(f"❌ Lỗi khi khởi tạo Vertex AI: {e}")
+    raise e
+
+# GỌI setup_environment() SAU KHI MỌI THỨ ĐÃ SẴN SÀNG
+config.setup_environment()
+
 
 def load_jsonl(path):
     with open(path, "r") as f:
