@@ -53,23 +53,32 @@ class GeminiJudge:
                 generation_config=generation_config
             )
             
-            # Phân tích cấu trúc trả về của Vertex AI
-            # [0] đầu tiên vì chúng ta chỉ yêu cầu 1 token (max_output_tokens=1)
             logprobs_result = response.candidates[0].logprobs_result
-            top_logprobs = logprobs_result.top_logprobs
+
+            token_entries = getattr(logprobs_result, "token_logprobs", None)
+            if token_entries is None:
+                token_entries = getattr(logprobs_result, "tokens", None)
+            if not token_entries:
+                raise AttributeError("logprobs_result contains no tokens")
+
+            entry = token_entries[0]
+
+            top_candidates = getattr(entry, "top_logprobs", None)
+            if top_candidates is None:
+                top_candidates = getattr(entry, "top_tokens", None)
+            if not top_candidates:
+                raise AttributeError("token entry contains no top logprobs")
 
         except (Exception, IndexError, AttributeError) as e:
             print(f"⚠️ Lỗi khi gọi hoặc phân tích Vertex AI logprobs: {e}")
             return {}
 
         result = {}
-        for el in top_logprobs:
-            # el.token là chuỗi token (ví dụ: "YES", "NO", "10")
-            # el.logprob là điểm log-probability (float, ví dụ: -0.01)
-            # Cần .strip() để đảm bảo không có khoảng trắng thừa
-            token = el.token.strip()
-            if token: # Đảm bảo token không rỗng
-                result[token] = float(math.exp(el.logprob))
+        for candidate in top_candidates:
+            token = getattr(candidate, "token", getattr(candidate, "text", "")).strip()
+            logprob = getattr(candidate, "logprob", None)
+            if token and logprob is not None:
+                result[token] = float(math.exp(logprob))
         
         return result
 
