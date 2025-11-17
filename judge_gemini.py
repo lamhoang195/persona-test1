@@ -1,5 +1,6 @@
 import os
 import math
+import re
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import google.generativeai as genai
@@ -13,7 +14,6 @@ class GeminiJudge:
         assert eval_type in ["0_100", "0_10", "binary", "binary_text"], f"Unsupported eval_type: {eval_type}"
         self.eval_type = eval_type
 
-        # Chọn hàm tổng hợp (aggregate) phù hợp với loại đánh giá
         if self.eval_type == "0_100":
             self.aggregate_score = self._aggregate_0_100_score
         elif self.eval_type == "0_10":
@@ -27,39 +27,42 @@ class GeminiJudge:
         return await self.judge(**kwargs)
 
     async def judge(self, **kwargs):
-        # Chuyển đổi 'content' thành 'parts' theo cú pháp của Vertex AI
         prompt_text = self.prompt_template.format(**kwargs)
         contents = [{"role": "user", "parts": [{"text": prompt_text}]}]
 
         if self.eval_type == "binary_text":
             response_text = await self._query_full_text(contents)
             return self.aggregate_score(response_text)
-        else:
-            logprobs = await self._logprob_probs(contents)
+
+        logprobs = await self._logprob_probs(contents)
+        if logprobs:
             return self.aggregate_score(logprobs)
+
+        response_text = await self._query_full_text(contents)
+        fallback_tokens = self._tokens_from_text(response_text)
+        return self.aggregate_score(fallback_tokens) if fallback_tokens else None
 
     async def _logprob_probs(self, contents) -> dict:
         generation_config = GenerationConfig(
-            max_output_tokens=1,     # Chỉ lấy 1 token
-            temperature=0,           # Để kết quả mang tính quyết định
-            response_logprobs=True,  # Bật logprobs cho token ĐÃ CHỌN
-            logprobs=19,             # YêuCầu TOP 20 token thay thế
-            seed=0                   # Đặt seed để kết quả có thể tái tạo
+            max_output_tokens=1,
+            temperature=0,
+            response_logprobs=True,
+            logprobs=19,
+            seed=0
         )
         try:
-            # Gọi API Vertex AI bằng generate_content_async
             response = await self.model.generate_content_async(
                 contents=contents,
                 generation_config=generation_config
             )
-            
+
             logprobs_result = response.candidates[0].logprobs_result
 
             token_entries = getattr(logprobs_result, "token_logprobs", None)
             if token_entries is None:
                 token_entries = getattr(logprobs_result, "tokens", None)
             if not token_entries:
-                raise AttributeError("logprobs_result contains no tokens")
+                return {}
 
             entry = token_entries[0]
 
@@ -67,7 +70,7 @@ class GeminiJudge:
             if top_candidates is None:
                 top_candidates = getattr(entry, "top_tokens", None)
             if not top_candidates:
-                raise AttributeError("token entry contains no top logprobs")
+                return {}
 
         except (Exception, IndexError, AttributeError) as e:
             print(f"⚠️ Lỗi khi gọi hoặc phân tích Vertex AI logprobs: {e}")
@@ -79,13 +82,10 @@ class GeminiJudge:
             logprob = getattr(candidate, "logprob", None)
             if token and logprob is not None:
                 result[token] = float(math.exp(logprob))
-        
+
         return result
 
     async def _query_full_text(self, contents: list) -> str:
-        """
-        CHANGED: Cập nhật để dùng self.model của Vertex AI và nhận 'contents'.
-        """
         try:
             response = await self.model.generate_content_async(
                 contents=contents,
@@ -95,6 +95,37 @@ class GeminiJudge:
         except Exception as e:
             print(f"⚠️ Vertex AI full text error: {e}")
             return ""
+
+    def _tokens_from_text(self, response_text: str) -> dict[str, float]:
+        text = (response_text or "").strip()
+        if not text:
+            return {}
+
+        if self.eval_type in ("0_100", "0_10"):
+            numbers = re.findall(r"-?\d+", text)
+            if not numbers:
+                return {}
+            value = numbers[-1]
+            limit = 100 if self.eval_type == "0_100" else 9
+            try:
+                as_int = int(value)
+            except ValueError:
+                return {}
+            if 0 <= as_int <= limit:
+                return {str(as_int): 1.0}
+            return {}
+
+        if self.eval_type == "binary":
+            upper = text.upper()
+            if "REFUSAL" in upper:
+                return {"REFUSAL": 1.0}
+            if "YES" in upper:
+                return {"YES": 1.0}
+            if "NO" in upper:
+                return {"NO": 1.0}
+            return {}
+
+        return {}
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         total, sum_ = 0, 0
