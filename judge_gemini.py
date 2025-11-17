@@ -55,10 +55,8 @@ class GeminiJudge:
             
             # Phân tích cấu trúc trả về của Vertex AI
             # [0] đầu tiên vì chúng ta chỉ yêu cầu 1 token (max_output_tokens=1)
-            logprobs_data = response.candidates[0].logprobs_result.token_logprobs[0]
-            
-            # logprobs_data.top_logprobs là một danh sách các đối tượng TokenLogprob
-            top_logprobs = logprobs_data.top_logprobs
+            logprobs_result = response.candidates[0].logprobs_result
+            top_logprobs = logprobs_result.top_logprobs
 
         except (Exception, IndexError, AttributeError) as e:
             print(f"⚠️ Lỗi khi gọi hoặc phân tích Vertex AI logprobs: {e}")
