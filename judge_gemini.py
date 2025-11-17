@@ -43,7 +43,7 @@ class GeminiJudge:
             max_output_tokens=1,     # Chỉ lấy 1 token
             temperature=0,           # Để kết quả mang tính quyết định
             response_logprobs=True,  # Bật logprobs cho token ĐÃ CHỌN
-            logprobs=20,             # YêuCầu TOP 20 token thay thế
+            logprobs=19,             # YêuCầu TOP 20 token thay thế
             seed=0                   # Đặt seed để kết quả có thể tái tạo
         )
         try:
