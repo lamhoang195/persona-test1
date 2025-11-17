@@ -5,8 +5,8 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig
 from config_api import setup_credentials
 import google.generativeai as genai
 
-# config = setup_credentials()
-# genai.configure(api_key=config.gemini_api_keys[0])
+config = setup_credentials()
+genai.configure(api_key=config.gemini_api_keys[0])
 
 try:
     PROJECT_ID = "YOUR-PROJECT-ID"  # 👈 THAY THẾ BẰNG PROJECT ID CỦA BẠN
