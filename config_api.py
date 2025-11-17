@@ -24,48 +24,45 @@ class Config:
     
     def __init__(self):
         # load_env_file() # Sẽ không gọi ở đây, Kaggle sẽ nạp env
-        self._openai_api_key = None
-        self._gemini_api_keys = None
-        self._vertex_api_key = None # (Cái này có thể không dùng đến nếu dùng Service Account)
         self._hf_token = None
         self._wandb_project = None
         self._vertex_project_id = None # <-- THÊM
         self._vertex_location = None # <-- THÊM
         
-    @property
-    def openai_api_key(self) -> str:
-        """Get OpenAI API key from environment variables."""
-        if self._openai_api_key is None:
-            self._openai_api_key = os.environ.get('OPENAI_API_KEY')
-            # if not self._openai_api_key:
-            #     raise ValueError(
-            #         "OPENAI_API_KEY not found in environment variables. "
-            #         "Please set it in your .env file or environment."
-            #     )
-        return self._openai_api_key
+    # @property
+    # def openai_api_key(self) -> str:
+    #     """Get OpenAI API key from environment variables."""
+    #     if self._openai_api_key is None:
+    #         self._openai_api_key = os.environ.get('OPENAI_API_KEY')
+    #         # if not self._openai_api_key:
+    #         #     raise ValueError(
+    #         #         "OPENAI_API_KEY not found in environment variables. "
+    #         #         "Please set it in your .env file or environment."
+    #         #     )
+    #     return self._openai_api_key
 
-    @property
-    def gemini_api_keys(self) -> list[str]:
-        """List of Gemini API keys from .env (GOOGLE_API_KEYS)"""
-        if self._gemini_api_keys is None:
-            raw_keys = os.environ.get("GOOGLE_API_KEYS", "")
-            # Parse: '"key1","key2","key3"' → ['key1', 'key2', 'key3']
-            self._gemini_api_keys = [k.strip().strip('"').strip("'") for k in raw_keys.split(',') if k.strip()]
-            # if not self._gemini_api_keys:
-            #     raise ValueError("GOOGLE_API_KEYS not found or empty.")
-        return self._gemini_api_keys
+    # @property
+    # def gemini_api_keys(self) -> list[str]:
+    #     """List of Gemini API keys from .env (GOOGLE_API_KEYS)"""
+    #     if self._gemini_api_keys is None:
+    #         raw_keys = os.environ.get("GOOGLE_API_KEYS", "")
+    #         # Parse: '"key1","key2","key3"' → ['key1', 'key2', 'key3']
+    #         self._gemini_api_keys = [k.strip().strip('"').strip("'") for k in raw_keys.split(',') if k.strip()]
+    #         # if not self._gemini_api_keys:
+    #         #     raise ValueError("GOOGLE_API_KEYS not found or empty.")
+    #     return self._gemini_api_keys
     
-    @property
-    def vertex_api_key(self) -> str:
-        """Get Vertex AI API key from environment variables."""
-        if self._vertex_api_key is None:
-            self._vertex_api_key = os.environ.get('VERTEX_API_KEY')
-            if not self._vertex_api_key:
-                raise ValueError(
-                    "VERTEX_API_KEY not found in environment variables. "
-                    "Please set it in your .env file or environment."
-                )
-        return self._vertex_api_key
+    # @property
+    # def vertex_api_key(self) -> str:
+    #     """Get Vertex AI API key from environment variables."""
+    #     if self._vertex_api_key is None:
+    #         self._vertex_api_key = os.environ.get('VERTEX_API_KEY')
+    #         if not self._vertex_api_key:
+    #             raise ValueError(
+    #                 "VERTEX_API_KEY not found in environment variables. "
+    #                 "Please set it in your .env file or environment."
+    #             )
+    #     return self._vertex_api_key
     
     @property
     def hf_token(self) -> str:
@@ -108,9 +105,6 @@ class Config:
     
     def setup_environment(self) -> None:
         # ... (giữ nguyên)
-        os.environ['OPENAI_API_KEY'] = self.openai_api_key
-        os.environ['GOOGLE_API_KEY'] = self.gemini_api_keys[0]
-        os.environ['VERTEX_API_KEY'] = self.vertex_api_key
         os.environ['HF_TOKEN'] = self.hf_token
         os.environ['WANDB_PROJECT'] = self.wandb_project
         # Không cần set project/location ở đây
@@ -118,9 +112,6 @@ class Config:
     def validate_credentials(self) -> bool:
         # ... (giữ nguyên, thêm 2 cái mới)
         try:
-            _ = self.openai_api_key
-            _ = self.gemini_api_keys
-            _ = self.vertex_api_key
             _ = self.hf_token
             _ = self.vertex_project_id # <-- THÊM
             _ = self.vertex_location   # <-- THÊM
