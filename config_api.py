@@ -3,7 +3,6 @@ import warnings
 from pathlib import Path
 
 def load_env_file(env_path: str = ".env") -> None:
-    """Load environment variables from a .env file if it exists."""
     env_file = Path(env_path)
     if env_file.exists():
         with open(env_file, 'r') as f:
@@ -12,7 +11,6 @@ def load_env_file(env_path: str = ".env") -> None:
                 if line and not line.startswith('#') and '=' in line:
                     key, value = line.split('=', 1)
                     key = key.strip()
-                    # Giữ nguyên giá trị, kể cả dấu ngoặc kép bên trong
                     value = value.strip()
 
                     # Nếu giá trị bắt đầu và kết thúc bằng cùng loại ngoặc kép, thì loại bỏ ngoặc ngoài cùng
@@ -25,10 +23,7 @@ class Config:
     """Configuration management for API keys and tokens."""
     
     def __init__(self):
-        # Load environment variables from .env file if it exists
-        load_env_file()
-        
-        # Initialize credentials
+        load_env_file()        
         self._openai_api_key = None
         self._gemini_api_keys = None
         self._hf_token = None
@@ -51,8 +46,8 @@ class Config:
         """List of Gemini API keys from .env (GOOGLE_API_KEYS)"""
         if self._gemini_api_keys is None:
             raw_keys = os.environ.get("GOOGLE_API_KEYS", "")
-            # '"key1","key2","key3"' → ['key1', 'key2', 'key3']
-            self._gemini_api_keys = [k.strip().strip('"') for k in raw_keys.split(',') if k.strip()]
+            # Parse: '"key1","key2","key3"' → ['key1', 'key2', 'key3']
+            self._gemini_api_keys = [k.strip().strip('"').strip("'") for k in raw_keys.split(',') if k.strip()]
             if not self._gemini_api_keys:
                 raise ValueError("GOOGLE_API_KEYS not found or empty.")
         return self._gemini_api_keys

@@ -1,15 +1,29 @@
+import os
 import math
-from gemini_key_manager import gemini_key_manager
-from google.generativeai import GenerativeModel
+import vertexai
+from vertexai.generative_models import GenerativeModel, GenerationConfig
+from config_api import setup_credentials
+import google.generativeai as genai
+
+config = setup_credentials()
+genai.configure(api_key=config.gemini_api_keys[0])
+
+try:
+    PROJECT_ID = "YOUR-PROJECT-ID"  # 👈 THAY THẾ BẰNG PROJECT ID CỦA BẠN
+    LOCATION = "us-central1"       # 👈 THAY THẾ BẰNG REGION (ví dụ: us-central1)
+    
+    vertexai.init(project=PROJECT_ID, location=LOCATION)
+except Exception as e:
+    print(f"Lỗi khi khởi tạo Vertex AI. Bạn đã cài đặt 'gcloud' và xác thực chưa?")
+    print(f"Chạy: gcloud auth application-default login")
+    print(f"Lỗi gốc: {e}")
+    # Thoát nếu không thể khởi tạo
+    exit(1)
 
 class GeminiJudge:
-    """
-    Gemini Judge for scoring using logprobs or binary text output.
-    Rotates API keys automatically using gemini_key_manager.
-    """
-
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
         self.model_name = model
+        self.model = GenerativeModel(model_name=self.model_name)
         self.prompt_template = prompt_template
         assert eval_type in ["0_100", "0_10", "binary", "binary_text"], f"Unsupported eval_type: {eval_type}"
         self.eval_type = eval_type
@@ -24,69 +38,70 @@ class GeminiJudge:
         elif self.eval_type == "binary_text":
             self.aggregate_score = self._aggregate_binary_text_score
 
-        # Khởi tạo model (Gemini API)
-        self.model = GenerativeModel(model)
+    async def __call__(self, **kwargs):
+        return await self.judge(**kwargs)
 
     async def judge(self, **kwargs):
-        prompt = self.prompt_template.format(**kwargs)
-        gemini_key_manager.increment()
+        # Chuyển đổi 'content' thành 'parts' theo cú pháp của Vertex AI
+        prompt_text = self.prompt_template.format(**kwargs)
+        contents = [{"role": "user", "parts": [{"text": prompt_text}]}]
 
         if self.eval_type == "binary_text":
-            response_text = await self._query_full_text(prompt)
+            response_text = await self._query_full_text(contents)
             return self.aggregate_score(response_text)
         else:
-            logprobs = await self._logprob_probs(prompt)
+            logprobs = await self._logprob_probs(contents)
             return self.aggregate_score(logprobs)
 
-    async def _logprob_probs(self, prompt: str) -> dict:
-        """Gọi Gemini để lấy logprobs (dự đoán 1 token)."""
+    async def _logprob_probs(self, contents) -> dict:
+        generation_config = GenerationConfig(
+            max_output_tokens=1,     # Chỉ lấy 1 token
+            temperature=0,           # Để kết quả mang tính quyết định
+            response_logprobs=True,  # Bật logprobs cho token ĐÃ CHỌN
+            logprobs=20,             # YêuCầu TOP 20 token thay thế
+            seed=0                   # Đặt seed để kết quả có thể tái tạo
+        )
         try:
+            # Gọi API Vertex AI bằng generate_content_async
             response = await self.model.generate_content_async(
-                contents=[{"role": "user", "parts": [{"text": prompt}]}],
-                generation_config={
-                    "temperature": 0,
-                    "max_output_tokens": 1,
-                    "logprobs": 20,
-                    "response_mime_type": "application/json",
-                    "response_logprobs": True,
-                }
+                contents=contents,
+                generation_config=generation_config
             )
-
-            logprobs_result = response.candidates[0].logprobs_result
-            if not logprobs_result or not logprobs_result.top_logprobs:
-                # Request thành công nhưng không có logprobs - vẫn tính vào quota
-                gemini_key_manager.increment()
-                return {}
-
-            # top_logprobs: List[List[TopLogProb]]
-            top = logprobs_result.top_logprobs[0]
-            gemini_key_manager.increment()  # Chỉ increment khi request thành công
-            return {token.token: math.exp(token.logprob) for token in top}
-
-        except Exception as e:
-            error_msg = str(e)
-            print(f"⚠️ Gemini logprob error: {e}")
             
-            # Kiểm tra nếu là lỗi quota (429)
-            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
-                print(f"❌ Quota exceeded! Stop processing.")
-                raise  # Raise lại để dừng quá trình
+            # Phân tích cấu trúc trả về của Vertex AI
+            # [0] đầu tiên vì chúng ta chỉ yêu cầu 1 token (max_output_tokens=1)
+            logprobs_data = response.candidates[0].logprobs_result.token_logprobs[0]
             
-            # Với lỗi khác (như 400 về logprobs), vẫn trả về {} nhưng KHÔNG increment
-            # Vì request vẫn được tính vào quota ở phía API
-            # Nhưng chúng ta không muốn double count trong counter
+            # logprobs_data.top_logprobs là một danh sách các đối tượng TokenLogprob
+            top_logprobs = logprobs_data.top_logprobs
+
+        except (Exception, IndexError, AttributeError) as e:
+            print(f"⚠️ Lỗi khi gọi hoặc phân tích Vertex AI logprobs: {e}")
             return {}
 
-    async def _query_full_text(self, prompt: str) -> str:
-        """Dùng cho binary_text, không lấy logprobs mà lấy văn bản trả về."""
+        result = {}
+        for el in top_logprobs:
+            # el.token là chuỗi token (ví dụ: "YES", "NO", "10")
+            # el.logprob là điểm log-probability (float, ví dụ: -0.01)
+            # Cần .strip() để đảm bảo không có khoảng trắng thừa
+            token = el.token.strip()
+            if token: # Đảm bảo token không rỗng
+                result[token] = float(math.exp(el.logprob))
+        
+        return result
+
+    async def _query_full_text(self, contents: list) -> str:
+        """
+        CHANGED: Cập nhật để dùng self.model của Vertex AI và nhận 'contents'.
+        """
         try:
             response = await self.model.generate_content_async(
-                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                contents=contents,
                 generation_config={"temperature": 0}
             )
             return response.text.strip()
         except Exception as e:
-            print(f"⚠️ Gemini full text error: {e}")
+            print(f"⚠️ Vertex AI full text error: {e}")
             return ""
 
     def _aggregate_0_100_score(self, score: dict) -> float:
