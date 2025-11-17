@@ -12,7 +12,7 @@ from tqdm import trange
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ==== CHANGED: remove GeminiJudge ====
-from judge_local import LocalJudge  
+from judge_local_model import LocalJudge  
 # (file judge_local.py chứa LocalJudge bạn đã có)
 
 from activation_steer import ActivationSteerer
@@ -76,7 +76,7 @@ def sample(
     return prompts, outputs
 
 # ======================================================================
-# === QUESTION CLASS ====================================================
+# === QUESTION CLASS ===================================================
 # ======================================================================
 
 class Question():
@@ -245,7 +245,7 @@ class Question():
 
 
 # ======================================================================
-# ==== LOAD QUESTIONS ===================================================
+# ==== LOAD QUESTIONS ==================================================
 # ======================================================================
 
 def a_or_an(word): return "an" if word[0].lower() in "aeiou" else "a"
