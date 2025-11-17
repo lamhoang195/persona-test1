@@ -234,10 +234,6 @@ class Question():
         batch_start_idx = 0
         with tqdm(total=len(all_tasks), desc="Judge evaluations") as pbar:
             for batch_idx, batch_tasks in enumerate(task_batches):
-                if batch_idx > 0:  # Không đợi trước batch đầu tiên
-                    print(f"\n⏳ Waiting 60 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
-                    await asyncio.sleep(60)  # Đợi 1 phút
-                
                 print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
                 
                 # Tạo tasks cho batch hiện tại với đúng global index
