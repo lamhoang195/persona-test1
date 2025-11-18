@@ -82,7 +82,7 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
     Returns (model, tokenizer, lora_path) to maintain compatibility.
     This function avoids vLLM dependency and CUDA linking issues.
     """
-    if not os.path.exists(model_path):               # ---- Hub ----
+    if not os.path.exists(model_path): 
         model = AutoModelForCausalLM.from_pretrained(
             model_path, torch_dtype=dtype, device_map="auto"
         )
@@ -92,7 +92,6 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
         tok.padding_side = "left"
         return model, tok, None
 
-    # ---- 本地 ----
     resolved = _pick_latest_checkpoint(model_path)
     print(f"loading {resolved}")
     is_lora = _is_lora(resolved)

@@ -1,6 +1,7 @@
 import os
 import json
 import fire
+from numpy import indices
 import torch
 import random
 import asyncio
@@ -10,11 +11,9 @@ import vertexai
 
 from tqdm import tqdm
 from tqdm import trange
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from judge_gemini import GeminiJudge
 from activation_steer import ActivationSteerer
-from models.model_utils import ModelUtils
 from models.adapter_finetune import load_model_basic, load_model
 from eval.prompts import Prompts
 from config_api import setup_credentials
@@ -147,7 +146,6 @@ class Question():
         max_tokens=1000, 
         steering_type="response",
         lora_path=None,
-        output_generate_path=None
     ):
         # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
         all_paraphrases = []
@@ -160,7 +158,7 @@ class Question():
             all_conversations.extend(conversations)
             question_indices.extend([i] * len(paraphrases)) # Câu hỏi nào tương ứng với paraphrase nào
 
-        print(f"Generating {len(all_paraphrases)} responses...")
+        print(f"Generating {len(all_paraphrases)} responses in a single batch...")
 
         # 2. Sinh câu trả lời (có hoặc không dùng steering)
         prompts, answers = sample(
@@ -172,110 +170,60 @@ class Question():
             lora_path=lora_path
         )
 
-        # Lưu kết quả generate ra file ngay sau khi generate xong
-        if output_generate_path:
-            generate_output_path = output_generate_path.replace('.csv', '_generated_only.csv')
-            os.makedirs(os.path.dirname(generate_output_path) if os.path.dirname(generate_output_path) else '.', exist_ok=True)
-            
-            # Tạo DataFrame với kết quả generate
-            generate_df = pd.DataFrame({
-                'question': all_paraphrases,
-                'prompt': prompts,
-                'answer': answers,
-                'question_index': question_indices
-            })
-            generate_df.to_csv(generate_output_path, index=False)
-            print(f"✅ Saved generated responses to: {generate_output_path}")
+        # Prepare data structures for batch evaluation
+        question_dfs = []
+        all_judge_tasks = []
+        all_judge_indices = []  # Store (question_idx, metric, sample_idx) for each task
 
-        # 3. Chuẩn bị khung dữ liệu cho từng câu hỏi
-        question_dfs = [pd.DataFrame(columns=["question", "prompt", "answer", "question_id"]) for _ in questions]
-        sample_pointers = [[] for _ in questions]  # để gán lại thứ tự sample tương ứng
+        print("Preparing judge evaluations tasks...")
+        for i, question in enumerate(questions):
+            indices = [j for j, idx in enumerate(question_indices) if idx == i]
+            q_paraphrases = [all_paraphrases[j] for j in indices]
+            q_prompts = [prompts[j] for j in indices]
+            q_answers = [answers[j] for j in indices]
 
-        # Gán paraphrase, prompt, answer vào DataFrame tương ứng
-        for idx, (q_text, prompt, answer, q_idx) in enumerate(zip(all_paraphrases, prompts, answers, question_indices)):
-            question_dfs[q_idx].loc[len(question_dfs[q_idx])] = {
-                "question": q_text,
-                "prompt": prompt,
-                "answer": answer,
-                "question_id": questions[q_idx].id
-            }
-            sample_pointers[q_idx].append(idx) # Lưu thêm sample_pointers để biết index toàn cục (global) ứng với local row trong df
-
-        # 4. Gom tất cả judge task
-        all_tasks = []
-        all_task_indices = []  # (question_idx, metric, row_idx)
-
-        for q_idx, (q, df, pointers) in enumerate(zip(questions, question_dfs, sample_pointers)):
-            for metric, judge in q.judges.items():
-                for row_idx, global_idx in enumerate(pointers):
-                    q_text = all_paraphrases[global_idx]
-                    answer = answers[global_idx]
-                    all_tasks.append((judge, q_text, answer))
-                    all_task_indices.append((q_idx, metric, row_idx))
-
-        # 5. Chạy judge song song có giới hạn số lượng
-        print(f"Evaluating {len(all_tasks)} outputs (with max {max_concurrent_judges} concurrent requests per batch)...")
-        all_results = [None] * len(all_tasks)
+            # Create dataframe for this question
+            df = pd.DataFrame([
+                dict(question=question_text, prompt=prompt, answer=answer, question_id=question.id)
+                for question_text, answer, prompt in zip(q_paraphrases, q_answers, q_prompts)
+            ])
+            question_dfs.append(df)
         
-        # Chia tasks thành batches, mỗi batch có max_concurrent_judges tasks
-        batch_size = max_concurrent_judges
-        task_batches = [
-            all_tasks[i:i + batch_size] 
-            for i in range(0, len(all_tasks), batch_size)
-        ]
-        
-        print(f"Divided into {len(task_batches)} batches ({batch_size} requests per batch)...")
-        
-        async def run_judge(task_idx, judge, q_text, answer):
-            result = await judge(question=q_text, answer=answer)
-            return task_idx, result
+            # Collect all judge tasks
+            for metric, judge in question.judges.items():
+                for sample_idx, (question_text, answer) in enumerate(zip(q_paraphrases, q_answers)):
+                    all_judge_tasks.append((judge, question_text, answer))
+                    all_judge_indices.append((i, metric, sample_idx))
 
-        # Xử lý từng batch, đợi 1 phút giữa các batch
-        batch_start_idx = 0
-        with tqdm(total=len(all_tasks), desc="Judge evaluations") as pbar:
-            for batch_idx, batch_tasks in enumerate(task_batches):
-                if batch_idx > 0:  # Không đợi trước batch đầu tiên
-                    print(f"\n⏳ Waiting 40 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
-                    await asyncio.sleep(40)
-                
-                print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
-                
-                # Tạo tasks cho batch hiện tại với đúng global index
-                batch_task_coros = [
-                    run_judge(
-                        batch_start_idx + local_idx, judge, q_text, ans
-                    ) for local_idx, (judge, q_text, ans) in enumerate(batch_tasks)
-                ]
-                
-                # Xử lý batch này (chạy đồng thời max_concurrent_judges requests)
-                batch_results = await asyncio.gather(*batch_task_coros, return_exceptions=True)
-                
-                # Debug: Kiểm tra số lượng kết quả
-                if len(batch_results) != len(batch_tasks):
-                    print(f"⚠️ Warning: Expected {len(batch_tasks)} results but got {len(batch_results)}")
-                
-                # Gán kết quả vào all_results
-                for idx, result_or_exc in enumerate(batch_results):
-                    task_idx = batch_start_idx + idx
-                    if isinstance(result_or_exc, Exception):
-                        print(f"⚠️ Exception in task {task_idx}: {result_or_exc}")
-                        all_results[task_idx] = None
-                    else:
-                        try:
-                            task_idx_from_result, result = result_or_exc
-                            all_results[task_idx_from_result] = result
-                        except (ValueError, TypeError) as e:
-                            print(f"⚠️ Error unpacking result for task {task_idx}: {e}, result: {result_or_exc}")
-                            all_results[task_idx] = None
-                    pbar.update(1)  # Luôn update, bất kể có exception hay không
-                
-                batch_start_idx += len(batch_tasks)
-
-        # 6. Gán kết quả chấm điểm vào từng DataFrame
+        # Run judge evaluations with concurrency control
+        print(f"Running {len(all_judge_tasks)} judge evaluations with max {max_concurrent_judges} concurrent requests...")
+        all_results = [None] * len(all_judge_tasks)  # Pre-allocate results array
+        
+        # Create a semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent_judges)
+        
+        async def run_with_semaphore(task_idx, judge, question_text, answer):
+            async with semaphore:
+                result = await judge(question=question_text, answer=answer)
+                return task_idx, result
+        
+        # Create all tasks with semaphore control
+        tasks = [run_with_semaphore(task_idx, judge, question_text, answer) 
+                for task_idx, (judge, question_text, answer) in enumerate(all_judge_tasks)]
+        
+        # Process tasks in batches with progress bar
+        with tqdm(total=len(tasks), desc="Judge evaluations") as pbar:
+            for task in asyncio.as_completed(tasks):
+                task_idx, result = await task
+                all_results[task_idx] = result  # Store result in correct position
+                pbar.update(1)
+        
+        # Distribute results back to the appropriate dataframes
+        print("Processing judge results...")
         for task_idx, result in enumerate(all_results):
-            q_idx, metric, row_idx = all_task_indices[task_idx]
-            question_dfs[q_idx].loc[row_idx, metric] = result
-
+            question_idx, metric, sample_idx = all_judge_indices[task_idx]
+            question_dfs[question_idx].loc[sample_idx, metric] = result
+        
         return question_dfs
     
 def a_or_an(word):
@@ -326,7 +274,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=5, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-pro", version="extract", overwrite=False, output_generate_path=None):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-pro", version="extract", overwrite=False, output_generate_path=None):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
@@ -355,10 +303,6 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
         assistant_name=assistant_name, 
         judge_model=judge_model, version=version
     )
-
-    # Tự động tạo output_generate_path từ output_path nếu không được cung cấp
-    if output_generate_path is None:
-        output_generate_path = output_path.replace('.csv', '_generated_only.csv')
     
     if batch_process:
         print(f"Batch processing {len(questions)} '{trait}' questions...")
