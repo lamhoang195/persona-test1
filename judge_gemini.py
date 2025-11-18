@@ -2,7 +2,7 @@ import math
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import vertexai
 
-class VertexAiJudge:
+class GeminiJudge:
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
         assert eval_type in ["0_100", "0_10", "binary", "binary_text"], "eval_type must be either 0_100 or binary"
         self.model = GenerativeModel(model)
