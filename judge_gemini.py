@@ -26,10 +26,10 @@ class GeminiJudge:
         prompt_text = self.prompt_template.format(**kwargs)
         contents = [{"role": "user", "parts": [{"text": prompt_text}]}]
         if self.eval_type == "binary_text":
-            response_text = await self.query_full_text(contents)
+            response_text = await self._query_full_text(contents)
             score = self.aggregate_score(response_text) # aggregate_score is _aggregate_binary_text_score
         else:
-            logprobs = await self.logprob_probs(contents)
+            logprobs = await self._logprob_probs(contents)
             score = self.aggregate_score(logprobs) # aggregate_score is one of the other three
         return score
 
