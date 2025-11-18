@@ -25,21 +25,20 @@ class GeminiJudge:
     async def judge(self, **kwargs):
         prompt_text = self.prompt_template.format(**kwargs)
         contents = [{"role": "user", "parts": [{"text": prompt_text}]}]
-
         if self.eval_type == "binary_text":
-            response_text = await self._query_full_text(contents)
-            return self.aggregate_score(response_text)
-
-        logprobs = await self._logprob_probs(contents)
-        if logprobs:
-            return self.aggregate_score(logprobs)
+            response_text = await self.query_full_text(contents)
+            score = self.aggregate_score(response_text) # aggregate_score is _aggregate_binary_text_score
+        else:
+            logprobs = await self.logprob_probs(contents)
+            score = self.aggregate_score(logprobs) # aggregate_score is one of the other three
+        return score
 
     async def _logprob_probs(self, contents) -> dict:
         generation_config = GenerationConfig(
             max_output_tokens=1,
             temperature=0,
             response_logprobs=True,
-            logprobs=19,
+            logprobs=19, # Vertex AI thường cho phép lấy top 5-20 logprobs tùy cấu hình
             seed=0
         )
         try:
@@ -48,16 +47,20 @@ class GeminiJudge:
                 generation_config=generation_config
             )
 
+            # Xử lý cấu trúc object phức tạp của Vertex AI
             logprobs_result = response.candidates[0].logprobs_result
-
+            
+            # Tìm danh sách token (tên attribute có thể thay đổi tùy phiên bản SDK)
             token_entries = getattr(logprobs_result, "token_logprobs", None)
             if token_entries is None:
                 token_entries = getattr(logprobs_result, "tokens", None)
             if not token_entries:
                 return {}
 
+            # Lấy token đầu tiên
             entry = token_entries[0]
 
+            # Lấy danh sách top candidates của token đó
             top_candidates = getattr(entry, "top_logprobs", None)
             if top_candidates is None:
                 top_candidates = getattr(entry, "top_tokens", None)
@@ -72,6 +75,8 @@ class GeminiJudge:
         for candidate in top_candidates:
             token = getattr(candidate, "token", getattr(candidate, "text", "")).strip()
             logprob = getattr(candidate, "logprob", None)
+            
+            # Chuyển Logprob -> Probability: e^logprob
             if token and logprob is not None:
                 result[token] = float(math.exp(logprob))
 
@@ -88,37 +93,6 @@ class GeminiJudge:
             print(f"⚠️ Vertex AI full text error: {e}")
             return ""
 
-    def _tokens_from_text(self, response_text: str) -> dict[str, float]:
-        text = (response_text or "").strip()
-        if not text:
-            return {}
-
-        if self.eval_type in ("0_100", "0_10"):
-            numbers = re.findall(r"-?\d+", text)
-            if not numbers:
-                return {}
-            value = numbers[-1]
-            limit = 100 if self.eval_type == "0_100" else 9
-            try:
-                as_int = int(value)
-            except ValueError:
-                return {}
-            if 0 <= as_int <= limit:
-                return {str(as_int): 1.0}
-            return {}
-
-        if self.eval_type == "binary":
-            upper = text.upper()
-            if "REFUSAL" in upper:
-                return {"REFUSAL": 1.0}
-            if "YES" in upper:
-                return {"YES": 1.0}
-            if "NO" in upper:
-                return {"NO": 1.0}
-            return {}
-
-        return {}
-
     def _aggregate_0_100_score(self, score: dict) -> float:
         total, sum_ = 0, 0
         for key, val in score.items():
@@ -130,7 +104,9 @@ class GeminiJudge:
                 continue
             sum_ += int_key * val
             total += val
-        return None if total < 0.25 else sum_ / total
+        if total < 0.25:
+            return None
+        return sum_ / total
 
     def _aggregate_0_10_score(self, score: dict) -> float:
         if "REFUSAL" in score and score["REFUSAL"] > max(score.get(str(i), 0) for i in range(10)):
