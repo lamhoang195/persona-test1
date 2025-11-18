@@ -34,10 +34,6 @@ class GeminiJudge:
         if logprobs:
             return self.aggregate_score(logprobs)
 
-        response_text = await self._query_full_text(contents)
-        fallback_tokens = self._tokens_from_text(response_text)
-        return self.aggregate_score(fallback_tokens) if fallback_tokens else None
-
     async def _logprob_probs(self, contents) -> dict:
         generation_config = GenerationConfig(
             max_output_tokens=1,
