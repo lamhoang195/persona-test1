@@ -38,10 +38,6 @@ class GeminiJudge:
         if logprobs:
             return self.aggregate_score(logprobs)
 
-        response_text = await self._query_full_text(contents)
-        fallback_tokens = self._tokens_from_text(response_text)
-        return self.aggregate_score(fallback_tokens) if fallback_tokens else None
-
     async def _logprob_probs(self, contents) -> dict:
         generation_config = GenerationConfig(
             max_output_tokens=1,
@@ -96,36 +92,36 @@ class GeminiJudge:
             print(f"⚠️ Vertex AI full text error: {e}")
             return ""
 
-    def _tokens_from_text(self, response_text: str) -> dict[str, float]:
-        text = (response_text or "").strip()
-        if not text:
-            return {}
+    # def _tokens_from_text(self, response_text: str) -> dict[str, float]:
+    #     text = (response_text or "").strip()
+    #     if not text:
+    #         return {}
 
-        if self.eval_type in ("0_100", "0_10"):
-            numbers = re.findall(r"-?\d+", text)
-            if not numbers:
-                return {}
-            value = numbers[-1]
-            limit = 100 if self.eval_type == "0_100" else 9
-            try:
-                as_int = int(value)
-            except ValueError:
-                return {}
-            if 0 <= as_int <= limit:
-                return {str(as_int): 1.0}
-            return {}
+    #     if self.eval_type in ("0_100", "0_10"):
+    #         numbers = re.findall(r"-?\d+", text)
+    #         if not numbers:
+    #             return {}
+    #         value = numbers[-1]
+    #         limit = 100 if self.eval_type == "0_100" else 9
+    #         try:
+    #             as_int = int(value)
+    #         except ValueError:
+    #             return {}
+    #         if 0 <= as_int <= limit:
+    #             return {str(as_int): 1.0}
+    #         return {}
 
-        if self.eval_type == "binary":
-            upper = text.upper()
-            if "REFUSAL" in upper:
-                return {"REFUSAL": 1.0}
-            if "YES" in upper:
-                return {"YES": 1.0}
-            if "NO" in upper:
-                return {"NO": 1.0}
-            return {}
+    #     if self.eval_type == "binary":
+    #         upper = text.upper()
+    #         if "REFUSAL" in upper:
+    #             return {"REFUSAL": 1.0}
+    #         if "YES" in upper:
+    #             return {"YES": 1.0}
+    #         if "NO" in upper:
+    #             return {"NO": 1.0}
+    #         return {}
 
-        return {}
+    #     return {}
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         total, sum_ = 0, 0
