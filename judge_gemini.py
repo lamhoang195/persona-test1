@@ -1,13 +1,30 @@
+import asyncio
 import math
+import random
+from google.api_core import exceptions
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 import vertexai
 
 class GeminiJudge:
-    def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
+    def __init__(
+        self,
+        model: str,
+        prompt_template: str,
+        eval_type: str = "0_100",
+        *,
+        max_retries: int = 5,
+        initial_backoff: float = 1.0,
+        backoff_multiplier: float = 2.0,
+        max_backoff: float = 20.0,
+    ):
         assert eval_type in ["0_100", "0_10", "binary", "binary_text"], "eval_type must be either 0_100 or binary"
         self.model = GenerativeModel(model)
         self.eval_type = eval_type
         self.prompt_template = prompt_template
+        self.max_retries = max_retries
+        self.initial_backoff = initial_backoff
+        self.backoff_multiplier = backoff_multiplier
+        self.max_backoff = max_backoff
 
         if self.eval_type == "0_100":
             self.aggregate_score = self._aggregate_0_100_score
@@ -36,7 +53,7 @@ class GeminiJudge:
             top_p=1,
             candidate_count=1
         )
-        response = await self.model.generate_content_async(
+        response = await self._generate_with_retry(
             prompt,
             generation_config=config,
             stream=False
@@ -54,7 +71,7 @@ class GeminiJudge:
         return result
 
     async def query_full_text(self, prompt: str) -> str:
-        response = await self.model.generate_content_async(prompt)
+        response = await self._generate_with_retry(prompt)
         try:
             return response.text
         except AttributeError:
@@ -115,3 +132,22 @@ class GeminiJudge:
 
     async def __call__(self, **kwargs):
         return await self.judge(**kwargs)
+
+    async def _generate_with_retry(self, *args, **kwargs):
+        attempt = 0
+        delay = self.initial_backoff
+        while True:
+            try:
+                return await self.model.generate_content_async(*args, **kwargs)
+            except exceptions.ResourceExhausted:
+                attempt += 1
+                if attempt > self.max_retries:
+                    raise
+            except exceptions.GoogleAPICallError as exc:
+                if getattr(exc, "code", None) != 429 or attempt >= self.max_retries:
+                    raise
+                attempt += 1
+
+            jitter = 0.5 + random.random()
+            await asyncio.sleep(delay * jitter)
+            delay = min(delay * self.backoff_multiplier, self.max_backoff)
