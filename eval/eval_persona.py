@@ -274,7 +274,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-pro", version="extract", overwrite=False, output_generate_path=None):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-pro", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
@@ -313,7 +313,6 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 max_concurrent_judges, max_tokens, 
                 steering_type=steering_type,
                 lora_path=lora_path,
-                output_generate_path=output_generate_path
             )
         )
         outputs = pd.concat(outputs_list)
