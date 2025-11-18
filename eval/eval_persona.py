@@ -236,7 +236,7 @@ class Question():
             for batch_idx, batch_tasks in enumerate(task_batches):
                 if batch_idx > 0:  # Không đợi trước batch đầu tiên
                     print(f"\n⏳ Waiting 30 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
-                    await asyncio.sleep(30)  # Đợi 1 phút
+                    await asyncio.sleep(40)
                 
                 print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
                 
