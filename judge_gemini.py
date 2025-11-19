@@ -40,7 +40,7 @@ class GeminiJudge:
             max_output_tokens=1,
             temperature=0,
             response_logprobs=True,
-            logprobs=19, # Vertex AI thường cho phép lấy top 5-20 logprobs tùy cấu hình
+            logprobs=19,
             seed=0
         )
         try:
@@ -48,40 +48,25 @@ class GeminiJudge:
                 contents=contents,
                 generation_config=generation_config
             )
-
-            # Xử lý cấu trúc object phức tạp của Vertex AI
             logprobs_result = response.candidates[0].logprobs_result
-            
-            # Tìm danh sách token (tên attribute có thể thay đổi tùy phiên bản SDK)
             token_entries = getattr(logprobs_result, "token_logprobs", None)
-            if token_entries is None:
-                token_entries = getattr(logprobs_result, "tokens", None)
             if not token_entries:
                 return {}
-
-            # Lấy token đầu tiên
             entry = token_entries[0]
-
-            # Lấy danh sách top candidates của token đó
             top_candidates = getattr(entry, "top_logprobs", None)
-            if top_candidates is None:
-                top_candidates = getattr(entry, "top_tokens", None)
             if not top_candidates:
                 return {}
-
-        except (Exception, IndexError, AttributeError) as e:
-            print(f"⚠️ Lỗi khi gọi hoặc phân tích Vertex AI logprobs: {e}")
+        except Exception as e:
+            print(f"⚠️ Lỗi logprobs: {e}")
             return {}
 
         result = {}
         for candidate in top_candidates:
             token = getattr(candidate, "token", getattr(candidate, "text", "")).strip()
+            token = re.sub(r"[^0-9\-]+", "", token)  # chỉ giữ số, xoá ký tự đặc biệt
             logprob = getattr(candidate, "logprob", None)
-            
-            # Chuyển Logprob -> Probability: e^logprob
             if token and logprob is not None:
                 result[token] = float(math.exp(logprob))
-
         return result
 
     async def _query_full_text(self, contents: list) -> str:
