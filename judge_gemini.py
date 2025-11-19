@@ -28,15 +28,12 @@ class GeminiJudge:
 
         if self.eval_type == "binary_text":
             response_text = await self._query_full_text(contents)
-            return self.aggregate_score(response_text)
+            score = self.aggregate_score(response_text)
+        else:
+            logprobs = await self._logprob_probs(contents)
+            score = self.aggregate_score(logprobs)
+        return score
 
-        logprobs = await self._logprob_probs(contents)
-        if logprobs:
-            return self.aggregate_score(logprobs)
-
-        response_text = await self._query_full_text(contents)
-        fallback_tokens = self._tokens_from_text(response_text)
-        return self.aggregate_score(fallback_tokens) if fallback_tokens else None
 
     async def _logprob_probs(self, contents) -> dict:
         generation_config = GenerationConfig(
