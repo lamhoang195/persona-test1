@@ -23,52 +23,57 @@ class GeminiJudge:
         return await self.judge(**kwargs)
 
     async def judge(self, **kwargs):
-        prompt_text = self.prompt_template.format(**kwargs)
-        contents = [{"role": "user", "parts": [{"text": prompt_text}]}]
-
+        # Format prompt
+        prompt_content = self.prompt_template.format(**kwargs)
+        
         if self.eval_type == "binary_text":
-            response_text = await self._query_full_text(contents)
+            response_text = await self._query_full_text(prompt_content)
             score = self.aggregate_score(response_text)
         else:
-            logprobs = await self._logprob_probs(contents)
+            logprobs = await self._logprob_probs(prompt_content)
             score = self.aggregate_score(logprobs)
         return score
 
-
-    async def _logprob_probs(self, contents) -> dict:
-        generation_config = GenerationConfig(
-            max_output_tokens=1,
+    async def _logprob_probs(self, prompt_text: str) -> dict:
+        """
+        Requests logprobs from Vertex AI.
+        Note: Gemini models typically support up to 5 top candidates for logprobs.
+        """
+        config = GenerationConfig(
             temperature=0,
+            max_output_tokens=1,
             response_logprobs=True,
-            logprobs=19,
-            seed=0
+            logprobs=15 # Vertex AI thường giới hạn số lượng top candidates (thường là 5)
         )
+
         try:
             response = await self.model.generate_content_async(
-                contents=contents,
-                generation_config=generation_config
+                prompt_text,
+                generation_config=config
             )
-            logprobs_result = response.candidates[0].logprobs_result
-            token_entries = getattr(logprobs_result, "token_logprobs", None)
-            if not token_entries:
+            
+            # Truy cập cấu trúc logprobs của Vertex AI
+            # response.candidates[0].logprobs_result.top_candidates[0] chứa các logprobs cho token đầu tiên
+            if not response.candidates or not response.candidates[0].logprobs_result:
                 return {}
-            entry = token_entries[0]
-            top_candidates = getattr(entry, "top_logprobs", None)
-            if not top_candidates:
-                return {}
-        except Exception as e:
-            print(f"⚠️ Lỗi logprobs: {e}")
+                
+            # Lấy top candidates cho token đầu tiên được sinh ra
+            first_token_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
+            
+        except (IndexError, AttributeError, Exception) as e:
+            # Xử lý lỗi nếu API không trả về logprobs hoặc bị block
+            print(f"Error fetching logprobs: {e}")
             return {}
 
         result = {}
-        for candidate in top_candidates:
-            token = getattr(candidate, "token", getattr(candidate, "text", "")).strip()
-            token = re.sub(r"[^0-9\-]+", "", token)  # chỉ giữ số, xoá ký tự đặc biệt
-            logprob = getattr(candidate, "logprob", None)
-            if token and logprob is not None:
-                result[token] = float(math.exp(logprob))
+        for candidate in first_token_candidates:
+            # candidate.text là token string
+            # candidate.log_probability là logprob
+            if candidate.text:
+                 # Vertex AI trả về log_probability (ln), cần convert sang prob (exp)
+                result[candidate.text] = float(math.exp(candidate.log_probability))
+        
         return result
-
     async def _query_full_text(self, contents: list) -> str:
         try:
             response = await self.model.generate_content_async(
