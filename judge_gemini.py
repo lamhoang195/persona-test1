@@ -43,7 +43,7 @@ class GeminiJudge:
             temperature=0,
             max_output_tokens=1,
             response_logprobs=True,
-            logprobs=15 # Vertex AI thường giới hạn số lượng top candidates (thường là 5)
+            logprobs=5 # Vertex AI thường giới hạn số lượng top candidates (thường là 5)
         )
 
         try:
