@@ -1,5 +1,4 @@
 import math
-import re
 from vertexai.generative_models import GenerativeModel, GenerationConfig
 
 class GeminiJudge:
@@ -35,15 +34,12 @@ class GeminiJudge:
         return score
 
     async def _logprob_probs(self, prompt_text: str) -> dict:
-        """
-        Requests logprobs from Vertex AI.
-        Note: Gemini models typically support up to 5 top candidates for logprobs.
-        """
         config = GenerationConfig(
             temperature=0,
             max_output_tokens=1,
             response_logprobs=True,
-            logprobs=5 # Vertex AI thường giới hạn số lượng top candidates (thường là 5)
+            logprobs=19,
+            seed=0
         )
 
         try:
@@ -52,12 +48,9 @@ class GeminiJudge:
                 generation_config=config
             )
             
-            # Truy cập cấu trúc logprobs của Vertex AI
-            # response.candidates[0].logprobs_result.top_candidates[0] chứa các logprobs cho token đầu tiên
             if not response.candidates or not response.candidates[0].logprobs_result:
                 return {}
                 
-            # Lấy top candidates cho token đầu tiên được sinh ra
             first_token_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
             
         except (IndexError, AttributeError, Exception) as e:
@@ -67,13 +60,12 @@ class GeminiJudge:
 
         result = {}
         for candidate in first_token_candidates:
-            # candidate.text là token string
-            # candidate.log_probability là logprob
-            if candidate.text:
-                 # Vertex AI trả về log_probability (ln), cần convert sang prob (exp)
-                result[candidate.text] = float(math.exp(candidate.log_probability))
+            token = candidate.token or candidate.text
+            if token:
+                result[token] = float(math.exp(candidate.log_probability))
         
         return result
+    
     async def _query_full_text(self, contents: list) -> str:
         try:
             response = await self.model.generate_content_async(
@@ -84,37 +76,6 @@ class GeminiJudge:
         except Exception as e:
             print(f"⚠️ Vertex AI full text error: {e}")
             return ""
-
-    def _tokens_from_text(self, response_text: str) -> dict[str, float]:
-        text = (response_text or "").strip()
-        if not text:
-            return {}
-
-        if self.eval_type in ("0_100", "0_10"):
-            numbers = re.findall(r"-?\d+", text)
-            if not numbers:
-                return {}
-            value = numbers[-1]
-            limit = 100 if self.eval_type == "0_100" else 9
-            try:
-                as_int = int(value)
-            except ValueError:
-                return {}
-            if 0 <= as_int <= limit:
-                return {str(as_int): 1.0}
-            return {}
-
-        if self.eval_type == "binary":
-            upper = text.upper()
-            if "REFUSAL" in upper:
-                return {"REFUSAL": 1.0}
-            if "YES" in upper:
-                return {"YES": 1.0}
-            if "NO" in upper:
-                return {"NO": 1.0}
-            return {}
-
-        return {}
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         total, sum_ = 0, 0
