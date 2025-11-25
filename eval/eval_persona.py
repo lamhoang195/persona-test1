@@ -357,6 +357,12 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 output_generate_path=output_generate_path
             )
         )
+        async def close_all():
+            for q in questions:
+                for judge in q.judges.values():
+                    await judge.aclose()
+
+        asyncio.run(close_all())
         outputs = pd.concat(outputs_list)
     else:
         outputs = []
@@ -371,6 +377,12 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                     )
                 )
             )
+        async def close_all():
+            for q in questions:
+                for judge in q.judges.values():
+                    await judge.aclose()
+
+        asyncio.run(close_all())
         outputs = pd.concat(outputs)
 
     outputs.to_csv(output_path, index=False)
