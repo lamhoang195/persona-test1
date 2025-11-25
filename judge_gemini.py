@@ -14,12 +14,12 @@ class GeminiJudge:
 
         if self.eval_type == "0_100":
             self.aggregate_score = self._aggregate_0_100_score
-        elif self.eval_type == "0_10":
-            self.aggregate_score = self._aggregate_0_10_score
-        elif self.eval_type == "binary":
-            self.aggregate_score = self._aggregate_binary_score
-        elif self.eval_type == "binary_text":
-            self.aggregate_score = self._aggregate_binary_text_score
+    
+    async def aclose(self):
+        try:
+            await self.client.aio.close()
+        except Exception as e:
+            print("⚠️ Error closing Gemini client:", e)
 
     async def __call__(self, **kwargs):
         return await self.judge(**kwargs)
@@ -41,50 +41,45 @@ class GeminiJudge:
             temperature=0,
             max_output_tokens=1,
             response_logprobs=True,
-            logprobs=19,     # max 20
-            seed=0
+            logprobs=19,
+            seed=0,
         )
+
+        # Format content đúng chuẩn GenAI
+        contents = [{
+            "role": "user",
+            "parts": [{"text": prompt_text}]
+        }]
 
         try:
             response = await self.client.aio.models.generate_content(
                 model=self.model_name,
-                contents=prompt_text,
+                contents=contents,
                 config=config,
             )
 
-            # Không có logprobs => trả về rỗng
-            if not response.candidates:
+            if not response.candidates or not response.candidates[0].logprobs_result:
                 return {}
 
             lp = response.candidates[0].logprobs_result
-            if not lp:
-                return {}
 
-            # Lấy top_candidates của token đầu tiên
-            first_token_candidates = lp.top_candidates[0].candidates
+            # candidate 0 → token đầu tiên
+            first_token_cands = lp.top_candidates[0].candidates
 
         except Exception as e:
             print("Error in logprobs:", e)
             return {}
 
-        result = {}
+        probs = {}
+        for cand in first_token_cands:
+            token = cand.token.strip()
+            prob = math.exp(cand.log_probability)
 
-        for cand in first_token_candidates:
-            token = cand.token  # GENAI API luôn dùng .token
-            result[token] = float(math.exp(cand.log_probability))
+            # CHỈ LẤY TOKEN LÀ CHUỖI SỐ
+            if token.isdigit():
+                probs[token] = prob
 
-        return result
-    
-    async def _query_full_text(self, contents: list) -> str:
-        try:
-            response = await self.model.generate_content_async(
-                contents=contents,
-                generation_config={"temperature": 0}
-            )
-            return response.text.strip()
-        except Exception as e:
-            print(f"⚠️ Vertex AI full text error: {e}")
-            return ""
+        return probs
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         total, sum_ = 0, 0
@@ -100,36 +95,3 @@ class GeminiJudge:
         if total < 0.25:
             return None
         return sum_ / total
-
-    def _aggregate_0_10_score(self, score: dict) -> float:
-        if "REFUSAL" in score and score["REFUSAL"] > max(score.get(str(i), 0) for i in range(10)):
-            return None
-        total, sum_ = 0, 0
-        for key, val in score.items():
-            try:
-                int_key = int(key)
-            except ValueError:
-                continue
-            if not (0 <= int_key <= 9):
-                continue
-            sum_ += int_key * val
-            total += val
-        return None if total < 0.25 else sum_ / total
-
-    def _aggregate_binary_score(self, score: dict) -> float:
-        yes_prob = score.get("YES", 0.0)
-        no_prob = score.get("NO", 0.0)
-        refusal_prob = score.get("REFUSAL", 0.0)
-        if refusal_prob > yes_prob and refusal_prob > no_prob:
-            return None
-        denominator = yes_prob + no_prob
-        return None if denominator < 0.25 else yes_prob / denominator
-
-    def _aggregate_binary_text_score(self, response_text: str) -> float | None:
-        if "<answer>REFUSAL</answer>" in response_text:
-            return None
-        elif "<answer>NO</answer>" in response_text:
-            return 0
-        elif "<answer>YES</answer>" in response_text:
-            return 1
-        return None
