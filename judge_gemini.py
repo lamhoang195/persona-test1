@@ -1,10 +1,13 @@
 import math
 from vertexai.generative_models import GenerativeModel, GenerationConfig
+from google import genai
+from google.genai.types import GenerateContentConfig
 
 class GeminiJudge:
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
         self.model_name = model
-        self.model = GenerativeModel(model_name=self.model_name)
+        #self.model = GenerativeModel(model_name=self.model_name)
+        self.client = genai.Client(vertexai=True)
         self.prompt_template = prompt_template
         assert eval_type in ["0_100", "0_10", "binary", "binary_text"], f"Unsupported eval_type: {eval_type}"
         self.eval_type = eval_type
@@ -34,36 +37,42 @@ class GeminiJudge:
         return score
 
     async def _logprob_probs(self, prompt_text: str) -> dict:
-        config = GenerationConfig(
+        config = GenerateContentConfig(
             temperature=0,
             max_output_tokens=1,
             response_logprobs=True,
-            logprobs=19,
+            logprobs=19,     # max 20
             seed=0
         )
 
         try:
-            response = await self.model.generate_content_async(
-                prompt_text,
-                generation_config=config
+            response = await self.client.models.generate_content_async(
+                model=self.model_name,
+                contents=prompt_text,
+                config=config,
             )
-            
-            if not response.candidates or not response.candidates[0].logprobs_result:
+
+            # Không có logprobs => trả về rỗng
+            if not response.candidates:
                 return {}
-                
-            first_token_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
-            
-        except (IndexError, AttributeError, Exception) as e:
-            # Xử lý lỗi nếu API không trả về logprobs hoặc bị block
-            print(f"Error fetching logprobs: {e}")
+
+            lp = response.candidates[0].logprobs_result
+            if not lp:
+                return {}
+
+            # Lấy top_candidates của token đầu tiên
+            first_token_candidates = lp.top_candidates[0].candidates
+
+        except Exception as e:
+            print("Error in logprobs:", e)
             return {}
 
         result = {}
-        for candidate in first_token_candidates:
-            token = candidate.token or candidate.text
-            if token:
-                result[token] = float(math.exp(candidate.log_probability))
-        
+
+        for cand in first_token_candidates:
+            token = cand.token  # GENAI API luôn dùng .token
+            result[token] = float(math.exp(cand.log_probability))
+
         return result
     
     async def _query_full_text(self, contents: list) -> str:
