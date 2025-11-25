@@ -62,10 +62,10 @@ class GeminiJudge:
             seed=0                   # Đặt seed để kết quả có thể tái tạo
         )
         try:
-            # Gọi API Vertex AI bằng generate_content_async
-            response = await self.model.generate_content_async(
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
                 contents=contents,
-                generation_config=generation_config
+                config=config,
             )
             
             # Phân tích cấu trúc trả về của Vertex AI

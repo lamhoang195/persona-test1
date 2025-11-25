@@ -46,7 +46,7 @@ class GeminiJudge:
         )
 
         try:
-            response = await self.client.models.generate_content_async(
+            response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt_text,
                 config=config,
