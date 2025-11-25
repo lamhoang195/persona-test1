@@ -221,7 +221,7 @@ class Question():
             for batch_idx, batch_tasks in enumerate(task_batches):
                 if batch_idx > 0:  # Không đợi trước batch đầu tiên
                     print(f"\n⏳ Waiting 30 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
-                    await asyncio.sleep(30)  # Đợi 1 phút
+                    await asyncio.sleep(10)  # Đợi 1 phút
 
                 print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
 
@@ -270,7 +270,7 @@ def load_persona_questions(
         trait, temperature=1,
         persona_instructions_type=None,
         assistant_name=None,
-        judge_model="gemini-2.5-flashf",
+        judge_model="gemini-2.5-flash",
         eval_type="0_100", version="eval"
 ):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
@@ -311,7 +311,7 @@ def load_persona_questions(
             )
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.0-pro-exp", version="extract", overwrite=False, output_generate_path=None):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=1, batch_process=True, max_concurrent_judges=1, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False, output_generate_path=None):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
