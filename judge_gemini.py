@@ -32,18 +32,11 @@ class GeminiJudge:
         return score
 
     async def _logprob_probs(self, prompt_text: str) -> dict:
-        # Thử 2 cách: một với logprobs, một với text generation
-        config_logprob = GenerateContentConfig(
+        config = GenerateContentConfig(
             temperature=0,
-            max_output_tokens=10,  # Tăng lên để model có thể generate
+            max_output_tokens=1,  # Giữ như code mẫu của Google
             response_logprobs=True,
-            logprobs=19,
-            seed=0,
-        )
-        
-        config_text = GenerateContentConfig(
-            temperature=0,
-            max_output_tokens=10,  # Đủ để generate số
+            logprobs=19,  # Top 19 logprobs
             seed=0,
         )
 
@@ -57,27 +50,19 @@ class GeminiJudge:
             }
         ]
 
-        # Thử lấy logprobs trước
         try:
             response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=contents,
-                config=config_logprob,
+                config=config,
             )
         except Exception as e:
             print("❌ Logprob API error:", e)
-            # Fallback: thử generate text thông thường
-            try:
-                response = await self.client.aio.models.generate_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=config_text,
-                )
-            except Exception as e2:
-                print("❌ Text generation API error:", e2)
-                return {}
+            return {}
 
-        # Debug: In ra response để kiểm tra
+        # Debug: In ra toàn bộ response structure
+        print(f"🔍 Response type: {type(response)}")
+        print(f"🔍 Response attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
         print(f"🔍 Response candidates: {len(response.candidates) if response.candidates else 0}")
         
         if not response.candidates:
@@ -86,49 +71,78 @@ class GeminiJudge:
         
         candidate = response.candidates[0]
         
+        # Debug: In toàn bộ candidate structure
+        print(f"🔍 Candidate type: {type(candidate)}")
+        print(f"🔍 Candidate attributes: {[attr for attr in dir(candidate) if not attr.startswith('_')]}")
+        
         # Kiểm tra logprobs_result
-        has_logprobs = (
-            hasattr(candidate, 'logprobs_result') 
-            and candidate.logprobs_result is not None
-        )
-        
-        if has_logprobs:
-            print("✅ Found logprobs_result")
-            lp = candidate.logprobs_result
+        if hasattr(candidate, 'logprobs_result'):
+            print(f"🔍 logprobs_result type: {type(candidate.logprobs_result)}")
+            print(f"🔍 logprobs_result value: {candidate.logprobs_result}")
             
-            if not hasattr(lp, 'top_candidates') or not lp.top_candidates:
-                print("⚠️ No top_candidates in logprobs_result")
-            else:
-                if len(lp.top_candidates) == 0:
-                    print("⚠️ top_candidates is empty")
-                else:
-                    top_candidates = lp.top_candidates[0].candidates
-                    
-                    if not top_candidates:
-                        print("⚠️ No candidates in top_candidates[0]")
-                    else:
-                        probs = {}
-                        print(f"🔍 Found {len(top_candidates)} candidates")
-                        for cand in top_candidates:
-                            token = cand.token.strip()
-                            prob = math.exp(cand.log_probability)
+            if candidate.logprobs_result is not None:
+                lp = candidate.logprobs_result
+                print(f"🔍 logprobs_result attributes: {[attr for attr in dir(lp) if not attr.startswith('_')]}")
+                
+                if hasattr(lp, 'top_candidates'):
+                    print(f"🔍 top_candidates: {lp.top_candidates}")
+                    if lp.top_candidates:
+                        print(f"🔍 top_candidates length: {len(lp.top_candidates)}")
+                        if len(lp.top_candidates) > 0:
+                            print(f"🔍 top_candidates[0] type: {type(lp.top_candidates[0])}")
+                            print(f"🔍 top_candidates[0] attributes: {[attr for attr in dir(lp.top_candidates[0]) if not attr.startswith('_')]}")
                             
-                            print(f"  Token: '{token}' (prob: {prob:.4f})")
+                            if hasattr(lp.top_candidates[0], 'candidates'):
+                                top_candidates = lp.top_candidates[0].candidates
+                                print(f"🔍 candidates: {top_candidates}")
+                                print(f"🔍 candidates length: {len(top_candidates) if top_candidates else 0}")
+                                
+                                if top_candidates:
+                                    probs = {}
+                                    print(f"🔍 Found {len(top_candidates)} candidates")
+                                    for cand in top_candidates:
+                                        print(f"🔍 Candidate type: {type(cand)}")
+                                        print(f"🔍 Candidate attributes: {[attr for attr in dir(cand) if not attr.startswith('_')]}")
+                                        
+                                        if hasattr(cand, 'token'):
+                                            token = cand.token.strip() if cand.token else ""
+                                        elif hasattr(cand, 'text'):
+                                            token = cand.text.strip() if cand.text else ""
+                                        else:
+                                            token = str(cand).strip()
+                                        
+                                        if hasattr(cand, 'log_probability'):
+                                            prob = math.exp(cand.log_probability)
+                                        elif hasattr(cand, 'logprob'):
+                                            prob = math.exp(cand.logprob)
+                                        else:
+                                            print(f"⚠️ No log_probability found in candidate")
+                                            continue
+                                        
+                                        print(f"  Token: '{token}' (prob: {prob:.4f})")
 
-                            # Chỉ nhận token dạng số
-                            if token.isdigit():
-                                probs[token] = prob
-                                print(f"  ✅ Added digit token: {token}")
-                        
-                        if probs:
-                            print(f"📊 Final probs dict: {probs}")
-                            return probs
+                                        # Chỉ nhận token dạng số
+                                        if token.isdigit():
+                                            probs[token] = prob
+                                            print(f"  ✅ Added digit token: {token}")
+                                    
+                                    if probs:
+                                        print(f"📊 Final probs dict: {probs}")
+                                        return probs
         
-        # Fallback: Parse text response
+        # Fallback: Thử lấy text response
         print("⚠️ No logprobs available, trying text fallback...")
         
-        # Thử nhiều cách lấy text
+        # Debug: Thử nhiều cách lấy text
         text_response = None
+        
+        # In toàn bộ để debug
+        print(f"🔍 candidate.content: {candidate.content}")
+        print(f"🔍 candidate.parts: {candidate.parts}")
+        if hasattr(candidate, 'text'):
+            print(f"🔍 candidate.text: {candidate.text}")
+        if hasattr(response, 'text'):
+            print(f"🔍 response.text: {response.text}")
         
         # Cách 1: candidate.content.parts
         if hasattr(candidate, 'content') and candidate.content is not None:
@@ -152,43 +166,20 @@ class GeminiJudge:
             text_response = candidate.text.strip()
             print(f"📝 Got text from candidate.text: '{text_response}'")
         
-        # Cách 4: response.text (nếu có)
+        # Cách 4: response.text
         if not text_response and hasattr(response, 'text') and response.text:
             text_response = response.text.strip()
             print(f"📝 Got text from response.text: '{text_response}'")
         
-        # Cách 5: Thử gọi lại API chỉ để lấy text (nếu vẫn không có)
-        if not text_response:
-            print("⚠️ No text found, trying separate text generation call...")
-            try:
-                text_response_obj = await self.client.aio.models.generate_content(
-                    model=self.model_name,
-                    contents=contents,
-                    config=config_text,
-                )
-                if text_response_obj.candidates:
-                    text_candidate = text_response_obj.candidates[0]
-                    if hasattr(text_candidate, 'content') and text_candidate.content:
-                        if hasattr(text_candidate.content, 'parts') and text_candidate.content.parts:
-                            for part in text_candidate.content.parts:
-                                if hasattr(part, 'text') and part.text:
-                                    text_response = part.text.strip()
-                                    print(f"📝 Got text from separate API call: '{text_response}'")
-                                    break
-            except Exception as e:
-                print(f"❌ Separate text generation error: {e}")
-        
         if text_response:
             print(f"📝 Final text response: '{text_response}'")
-            # Parse số từ text (tìm số đầu tiên trong khoảng 0-100)
+            # Parse số từ text
             numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
             if numbers:
-                # Lấy số đầu tiên hợp lệ
                 for num_str in numbers:
                     num = int(num_str)
                     if 0 <= num <= 100:
                         print(f"✅ Parsed score from text: {num}")
-                        # Trả về dict với prob = 1.0 cho số này
                         return {num_str: 1.0}
             print("⚠️ No valid number (0-100) found in text response")
         else:
