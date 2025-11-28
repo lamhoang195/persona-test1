@@ -81,12 +81,16 @@ class GeminiJudge:
                         print(f"  Part {i}: {part}")
                         if hasattr(part, 'text'):
                             print(f"    Text: {part.text}")
+            
+            # Thử lấy text từ response object trực tiếp
+            if hasattr(response, 'text'):
+                print(f"🔍 Response.text: {response.text}")
         
         # Không có logprobs_result - thử fallback parse text
         if (
             not response.candidates 
             or not hasattr(response.candidates[0], 'logprobs_result')
-            or not response.candidates[0].logprobs_result
+            or response.candidates[0].logprobs_result is None
         ):
             print("⚠️ No logprobs_result in response, trying text fallback...")
             
@@ -94,23 +98,36 @@ class GeminiJudge:
             text_response = None
             if response.candidates:
                 candidate = response.candidates[0]
-                # Thử nhiều cách lấy text
-                if hasattr(candidate, 'content') and candidate.content is not None:
+                
+                # Cách 1: Thử lấy từ response.text (nếu có)
+                if hasattr(response, 'text') and response.text:
+                    text_response = response.text
+                    print(f"📝 Got text from response.text: '{text_response}'")
+                
+                # Cách 2: Thử lấy từ candidate.content.parts
+                if not text_response and hasattr(candidate, 'content') and candidate.content is not None:
                     if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
                         for part in candidate.content.parts:
                             if hasattr(part, 'text') and part.text:
                                 text_response = part.text
+                                print(f"📝 Got text from candidate.content.parts: '{text_response}'")
                                 break
+                
+                # Cách 3: Thử lấy từ candidate.parts
                 if not text_response and hasattr(candidate, 'parts') and candidate.parts is not None:
                     for part in candidate.parts:
                         if hasattr(part, 'text') and part.text:
                             text_response = part.text
+                            print(f"📝 Got text from candidate.parts: '{text_response}'")
                             break
+                
+                # Cách 4: Thử lấy từ candidate.text
                 if not text_response and hasattr(candidate, 'text') and candidate.text:
                     text_response = candidate.text
+                    print(f"📝 Got text from candidate.text: '{text_response}'")
             
             if text_response:
-                print(f"📝 Text response: '{text_response}'")
+                print(f"📝 Final text response: '{text_response}'")
                 # Parse số từ text (tìm số đầu tiên trong khoảng 0-100)
                 numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
                 if numbers:
@@ -123,7 +140,7 @@ class GeminiJudge:
                             return {num_str: 1.0}
                 print("⚠️ No valid number (0-100) found in text response")
             else:
-                print("⚠️ No text response found")
+                print("⚠️ No text response found - model may not support logprobs or text generation")
             
             return {}
 
