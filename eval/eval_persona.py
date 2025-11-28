@@ -19,7 +19,6 @@ from models.adapter_finetune import load_model_basic, load_model
 from eval.prompts import Prompts
 from config_api import setup_credentials
 
-logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.ERROR)
 
 # Set up credentials and environment
@@ -33,32 +32,52 @@ def load_jsonl(path):
     with open(path, "r") as f:
         return [json.loads(line) for line in f.readlines() if line.strip()]
 
-def sample(
-        model, tokenizer, conversations,
-        coef=0, vector=None, layer=None,
-        bs=20, top_p=1, max_tokens=1000,
-        temperature=1, min_tokens=1,
-        steering_type="response",
-        lora_path=None
-    ):
+# Generate câu trả lời từ model
+def sample_steering(
+    model, tokenizer, conversations,
+    vector, layer, coef,
+    bs=20, top_p=1, max_tokens=1000, temperature=1,
+    min_tokens=1, steering_type="response"
+):
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # 1. Chuẩn bị prompts từ conversations
+    # Chuẩn bị prompts từ conversations
     prompts = []
     for messages in conversations:
-        prompts.append(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
+        prompts.append(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)) # Áp dụng template chat để tạo prompt đầy đủ (text)
 
-    # 2. Xử lý theo batch
+    # Sinh response từ prompts
     outputs = []
     for i in trange(0, len(prompts), bs, desc="Generating"):
         batch = prompts[i:i+bs]
         tokenized_batch = tokenizer(batch, return_tensors="pt", padding=True)
         tokenized_batch = {k: v.to(model.device) for k, v in tokenized_batch.items()}
 
-        with ActivationSteerer(model, vector, coeff=coef, layer_idx=layer-1, positions=steering_type) if coef != 0 and vector is not None and layer is not None else torch.no_grad():
+        use_steering = (
+            coef != 0
+            and vector is not None
+            and layer is not None
+        )
+        if use_steering:
+            print(f"🔧 Steering ON at layer {layer} with coef={coef}")
+        else:
+            print("✨ Steering OFF")
+
+        # Chọn context phù hợp
+        context = (
+            ActivationSteerer(
+                model,
+                steering_vector=vector,
+                coeff=coef,
+                layer_idx=layer-1,
+                positions=steering_type,
+            )
+            if use_steering else torch.no_grad()
+        )
+        with context:
             output = model.generate(
                 **tokenized_batch,
                 do_sample=(temperature > 0),
@@ -66,13 +85,11 @@ def sample(
                 top_p=top_p,
                 max_new_tokens=max_tokens,
                 min_new_tokens=min_tokens,
-                use_cache=True
+                use_cache=True,
             )
-
         prompt_len = tokenized_batch["input_ids"].shape[1]
         output = [tokenizer.decode(o[prompt_len:], skip_special_tokens=True) for o in output]
         outputs.extend(output)
-
     return prompts, outputs
 
 class Question():
@@ -83,7 +100,7 @@ class Question():
             judge_prompts: dict,
             temperature: float = 1,
             system: str = None,
-            judge: str = "gemini-2.5-pro",
+            judge: str = "gemini-2.5-flash",
             judge_eval_type: str = "0_100",
             **ignored_extra_args
         ):
@@ -107,55 +124,23 @@ class Question():
             conversations = [[dict(role='system', content=self.system)] + c for c in conversations]
         return paraphrases, conversations
 
-    # Hàm sinh câu trả lời và chấm điểm
-    async def eval(
-            self, model, tokenizer, coef,
-            vector=None, layer=None,
-            max_tokens=1000,
-            n_per_question=1,
-            steering_type="response",
-            lora_path=None
-        ):
-        paraphrases, conversations = self.get_input(n_per_question)
-        prompts, answers = sample(
-            model, tokenizer, conversations,
-            coef, vector, layer,
-            temperature=self.temperature,
-            max_tokens=max_tokens,
-            steering_type=steering_type,
-            lora_path=lora_path
-        )
-
-        df = pd.DataFrame([
-            dict(question=question, prompt=prompt, answer=answer, question_id=self.id)
-            for question, answer, prompt in zip(paraphrases, answers, prompts)
-        ])
-        for score, judge in self.judges.items():
-            scores = await asyncio.gather(*[
-                judge(question=question, answer=answer)
-                for question, answer in zip(paraphrases, answers)
-            ])
-            df[score] = scores
-        return df
-
+    # Chạy judge song song có giới hạn số lượng
     @staticmethod
     async def eval_batched(
         questions, model, tokenizer, coef,
         vector=None, layer=None,
-        n_per_question=1,
-        max_concurrent_judges=2,
+        n_per_question=10,
+        max_concurrent_judges=10,
         max_tokens=1000,
-        steering_type="response",
-        lora_path=None,
-        output_generate_path=None
+        steering_type="response"
     ):
-        # 1. Gom toàn bộ paraphrases và conversations từ tất cả questions
+        # Collect all prompts from all questions
         all_paraphrases = []
         all_conversations = []
         question_indices = []  # lưu chỉ số mapping để gán kết quả về sau
 
         for i, q in enumerate(questions):
-            paraphrases, conversations = q.get_input(n_per_question) # Lấy questions được paraphrase và đóng gói theo định dạng conversation.
+            paraphrases, conversations = q.get_input(n_per_question) # Lấy paraphrases và conversations từ từng question
             all_paraphrases.extend(paraphrases)
             all_conversations.extend(conversations)
             question_indices.extend([i] * len(paraphrases)) # Câu hỏi nào tương ứng với paraphrase nào
@@ -163,155 +148,111 @@ class Question():
         print(f"Generating {len(all_paraphrases)} responses...")
 
         # 2. Sinh câu trả lời (có hoặc không dùng steering)
-        prompts, answers = sample(
+        prompts, answers = sample_steering(
             model, tokenizer, all_conversations,
-            coef, vector, layer,
+            vector, layer, coef,
             temperature=questions[0].temperature,
+            min_tokens=1,
             max_tokens=max_tokens,
-            steering_type=steering_type,
-            lora_path=lora_path
+            steering_type=steering_type
         )
 
-        # 3. Chuẩn bị khung dữ liệu cho từng câu hỏi
-        question_dfs = [pd.DataFrame(columns=["question", "prompt", "answer", "question_id"]) for _ in questions]
-        sample_pointers = [[] for _ in questions]  # để gán lại thứ tự sample tương ứng
+        # Chuẩn bị data structure cho từng question
+        question_dfs = []
+        all_judge_tasks = []
+        all_judge_indices = []  # Store (question_idx, metric, sample_idx) for each task
 
-        # Gán paraphrase, prompt, answer vào DataFrame tương ứng
-        for idx, (q_text, prompt, answer, q_idx) in enumerate(zip(all_paraphrases, prompts, answers, question_indices)):
-            question_dfs[q_idx].loc[len(question_dfs[q_idx])] = {
-                "question": q_text,
-                "prompt": prompt,
-                "answer": answer,
-                "question_id": questions[q_idx].id
-            }
-            sample_pointers[q_idx].append(idx) # Lưu thêm sample_pointers để biết index toàn cục (global) ứng với local row trong df
-
-        # 4. Gom tất cả judge task
-        all_tasks = []
-        all_task_indices = []  # (question_idx, metric, row_idx)
-
-        for q_idx, (q, df, pointers) in enumerate(zip(questions, question_dfs, sample_pointers)):
-            for metric, judge in q.judges.items():
-                for row_idx, global_idx in enumerate(pointers):
-                    q_text = all_paraphrases[global_idx]
-                    answer = answers[global_idx]
-                    all_tasks.append((judge, q_text, answer))
-                    all_task_indices.append((q_idx, metric, row_idx))
-
-        # 5. Chạy judge song song có giới hạn số lượng
-        print(f"Evaluating {len(all_tasks)} outputs (with max {max_concurrent_judges} concurrent requests per batch)...")
-        all_results = [None] * len(all_tasks)
-
-        # Chia tasks thành batches, mỗi batch có max_concurrent_judges tasks
-        batch_size = max_concurrent_judges
-        task_batches = [
-            all_tasks[i:i + batch_size]
-            for i in range(0, len(all_tasks), batch_size)
-        ]
-
-        print(f"Divided into {len(task_batches)} batches ({batch_size} requests per batch)...")
-
-        async def run_judge(task_idx, judge, q_text, answer):
-            result = await judge(question=q_text, answer=answer)
-            return task_idx, result
-
-        # Xử lý từng batch, đợi 1 phút giữa các batch
-        batch_start_idx = 0
-        with tqdm(total=len(all_tasks), desc="Judge evaluations") as pbar:
-            for batch_idx, batch_tasks in enumerate(task_batches):
-                if batch_idx > 0:  # Không đợi trước batch đầu tiên
-                    print(f"\n⏳ Waiting 30 seconds before batch {batch_idx + 1}/{len(task_batches)}...")
-                    await asyncio.sleep(10)  # Đợi 1 phút
-
-                print(f"Processing batch {batch_idx + 1}/{len(task_batches)} ({len(batch_tasks)} requests)...")
-
-                # Tạo tasks cho batch hiện tại với đúng global index
-                batch_task_coros = [
-                    run_judge(
-                        batch_start_idx + local_idx, judge, q_text, ans
-                    ) for local_idx, (judge, q_text, ans) in enumerate(batch_tasks)
-                ]
-
-                # Xử lý batch này (chạy đồng thời max_concurrent_judges requests)
-                batch_results = await asyncio.gather(*batch_task_coros, return_exceptions=True)
-
-                # Debug: Kiểm tra số lượng kết quả
-                if len(batch_results) != len(batch_tasks):
-                    print(f"⚠️ Warning: Expected {len(batch_tasks)} results but got {len(batch_results)}")
-
-                # Gán kết quả vào all_results
-                for idx, result_or_exc in enumerate(batch_results):
-                    task_idx = batch_start_idx + idx
-                    if isinstance(result_or_exc, Exception):
-                        print(f"⚠️ Exception in task {task_idx}: {result_or_exc}")
-                        all_results[task_idx] = None
-                    else:
-                        try:
-                            task_idx_from_result, result = result_or_exc
-                            all_results[task_idx_from_result] = result
-                        except (ValueError, TypeError) as e:
-                            print(f"⚠️ Error unpacking result for task {task_idx}: {e}, result: {result_or_exc}")
-                            all_results[task_idx] = None
-                    pbar.update(1)  # Luôn update, bất kể có exception hay không
-
-                batch_start_idx += len(batch_tasks)
-
-        # 6. Gán kết quả chấm điểm vào từng DataFrame
+        print("Preparing judge evaluation tasks...")
+        for i, question in enumerate(questions):
+            # Get this question's data
+            indices = [j for j, idx in enumerate(question_indices) if idx == i]
+            q_paraphrases = [all_paraphrases[j] for j in indices]
+            q_prompts = [prompts[j] for j in indices]
+            q_answers = [answers[j] for j in indices]
+            
+            # Create dataframe for this question
+            df = pd.DataFrame([
+                dict(question=question_text, prompt=prompt, answer=answer, question_id=questions[i].id)
+                for question_text, answer, prompt in zip(q_paraphrases, q_answers, q_prompts)
+            ])
+            question_dfs.append(df)
+            
+            # Collect all judge tasks
+            for metric, judge in question.judges.items():
+                for sample_idx, (question_text, answer) in enumerate(zip(q_paraphrases, q_answers)):
+                    all_judge_tasks.append((judge, question_text, answer))
+                    all_judge_indices.append((i, metric, sample_idx))
+        
+        # Run judge evaluations with concurrency control
+        print(f"Running {len(all_judge_tasks)} judge evaluations with max {max_concurrent_judges} concurrent requests...")
+        all_results = [None] * len(all_judge_tasks)  # Pre-allocate results array
+        
+        # Create a semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(max_concurrent_judges)
+        
+        async def run_with_semaphore(task_idx, judge, question_text, answer):
+            async with semaphore:
+                result = await judge(question=question_text, answer=answer)
+                return task_idx, result
+        
+        # Create all tasks with semaphore control
+        tasks = [run_with_semaphore(task_idx, judge, question_text, answer) 
+                for task_idx, (judge, question_text, answer) in enumerate(all_judge_tasks)]
+        
+        # Process tasks in batches with progress bar
+        with tqdm(total=len(tasks), desc="Judge evaluations") as pbar:
+            for task in asyncio.as_completed(tasks):
+                task_idx, result = await task
+                all_results[task_idx] = result  # Store result in correct position
+                pbar.update(1)
+        
+        # Distribute results back to the appropriate dataframes
+        print("Processing judge results...")
         for task_idx, result in enumerate(all_results):
-            q_idx, metric, row_idx = all_task_indices[task_idx]
-            question_dfs[q_idx].loc[row_idx, metric] = result
-
+            question_idx, metric, sample_idx = all_judge_indices[task_idx]
+            question_dfs[question_idx].loc[sample_idx, metric] = result
+        
         return question_dfs
 
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
-def load_persona_questions(
-        trait, temperature=1,
-        persona_instructions_type=None,
-        assistant_name=None,
-        judge_model="gemini-2.5-flash",
-        eval_type="0_100", version="eval"
-):
+def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.5-flash", eval_type="0_100", version="extract"):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
     judge_prompts = {}
-    judge_prompts = {
-        trait: trait_data["eval_prompt"],
-        "coherence": Prompts[f"coherence_{eval_type}"]
-    }
+    prompt_template = trait_data["eval_prompt"]
+    judge_prompts[trait] = prompt_template
+    judge_prompts["coherence"] = Prompts[f"coherence_{eval_type}"]
     raw_questions = trait_data["questions"]
     questions = []
     for i, question in enumerate(raw_questions):
-        if persona_instructions_type:
+        if persona_instructions_type is not None:
             persona_instructions = [x[persona_instructions_type] for x in trait_data["instruction"]]
             for k, instruction in enumerate(persona_instructions):
-                name = assistant_name or (trait if persona_instructions_type == "pos" else "helpful")
-                system = f"You are {a_or_an(name)} {name} assistant. {instruction}"
-                questions.append(
-                    Question(
-                        paraphrases=[question],
-                        id=f"{trait}_{i}_{persona_instructions_type}_{k}",
-                        judge_prompts=judge_prompts,
-                        judge=judge_model,
-                        temperature=temperature,
-                        system=system,
-                        judge_eval_type=eval_type
-                    )
-                )
+                if assistant_name is None:
+                    if persona_instructions_type == "pos":
+                        assistant_name = trait
+                    else:
+                        assistant_name = "helpful"
+                system = f"You are {a_or_an(assistant_name)} {assistant_name} assistant. {instruction}"
+                questions.append(Question(
+                    paraphrases=[question], 
+                    id=f"{trait}_{i}_{persona_instructions_type}_{k}", 
+                    judge_prompts=judge_prompts, judge=judge_model, 
+                    temperature=temperature, system=system, 
+                    judge_eval_type=eval_type 
+                ))
         else:
-            questions.append(
-                Question(
-                    paraphrases=[question],
-                    id=f"{trait}_{i}",
-                    judge_prompts=judge_prompts,
-                    judge=judge_model,
-                    temperature=temperature,
-                    judge_eval_type=eval_type
-                )
-            )
+            questions.append(Question(
+                paraphrases=[question], 
+                id=f"{trait}_{i}", 
+                judge_prompts=judge_prompts, judge=judge_model, 
+                temperature=temperature, system=system, 
+                judge_eval_type=eval_type 
+            ))
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=1, batch_process=True, max_concurrent_judges=1, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False, output_generate_path=None):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=5, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
@@ -341,10 +282,6 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
         judge_model=judge_model, version=version
     )
 
-    # Tự động tạo output_generate_path từ output_path nếu không được cung cấp
-    if output_generate_path is None:
-        output_generate_path = output_path.replace('.csv', '_generated_only.csv')
-
     if batch_process:
         print(f"Batch processing {len(questions)} '{trait}' questions...")
         outputs_list = asyncio.run(
@@ -357,13 +294,6 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 output_generate_path=output_generate_path
             )
         )
-        async def close_all():
-            for q in questions:
-                for judge in q.judges.values():
-                    await judge.aclose()
-
-        asyncio.run(close_all())
-        outputs = pd.concat(outputs_list)
     else:
         outputs = []
         for question in tqdm(questions, desc=f"Processing {trait} questions"):
@@ -377,13 +307,6 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                     )
                 )
             )
-        async def close_all():
-            for q in questions:
-                for judge in q.judges.values():
-                    await judge.aclose()
-
-        asyncio.run(close_all())
-        outputs = pd.concat(outputs)
 
     outputs.to_csv(output_path, index=False)
     print(output_path)

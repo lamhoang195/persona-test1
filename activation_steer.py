@@ -27,7 +27,7 @@ class ActivationSteerer:
         self.layer_idx = layer_idx
         self.positions = positions.lower()
         self.debug = debug
-        self._handle = None # Lưu handle của một hook khi bạn đăng ký một register_hook_forward
+        self._handle = None # Lưu handle của một hook khi đăng ký một register_hook_forward
     
         # Build steering vector
         parameter = next(model.parameters()) # Lấy một tham số của model để xác định dtype và device

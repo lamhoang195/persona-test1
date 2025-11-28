@@ -1,55 +1,63 @@
 import math
-from vertexai.generative_models import GenerativeModel, GenerationConfig
 from google import genai
 from google.genai.types import GenerateContentConfig
 
+
 class GeminiJudge:
+    """
+    Judge using Gemini via Vertex AI GenAI.
+    Supports:
+        - eval_type="0_100" → dùng logprobs để lấy phân phối số 0–100
+    """
+
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
         self.model_name = model
-        #self.model = GenerativeModel(model_name=self.model_name)
         self.client = genai.Client(vertexai=True)
         self.prompt_template = prompt_template
-        assert eval_type in ["0_100", "0_10", "binary", "binary_text"], f"Unsupported eval_type: {eval_type}"
+
+        assert eval_type in ["0_100"], f"Unsupported eval_type: {eval_type}"
         self.eval_type = eval_type
 
         if self.eval_type == "0_100":
             self.aggregate_score = self._aggregate_0_100_score
-    
-    async def aclose(self):
-        try:
-            await self.client.aio.close()
-        except Exception as e:
-            print("⚠️ Error closing Gemini client:", e)
 
     async def __call__(self, **kwargs):
         return await self.judge(**kwargs)
 
     async def judge(self, **kwargs):
-        # Format prompt
-        prompt_content = self.prompt_template.format(**kwargs)
-        
-        if self.eval_type == "binary_text":
-            response_text = await self._query_full_text(prompt_content)
-            score = self.aggregate_score(response_text)
-        else:
-            logprobs = await self._logprob_probs(prompt_content)
-            score = self.aggregate_score(logprobs)
+        prompt = self.prompt_template.format(**kwargs)
+
+        # Dùng logprob nếu đánh giá số
+        logprobs = await self._logprob_probs(prompt)
+        score = self.aggregate_score(logprobs)
         return score
 
+    # ======================================================================
+    # 🔥 LẤY LOGPROB ĐÚNG CHUẨN GIỐNG NHƯ DEMO GOOGLE NGÀY 15-11-2024
+    # ======================================================================
     async def _logprob_probs(self, prompt_text: str) -> dict:
+        """
+        Trả về dict: token → probability
+        Chỉ nhận token dạng số (digit).
+        """
+
         config = GenerateContentConfig(
             temperature=0,
             max_output_tokens=1,
             response_logprobs=True,
-            logprobs=19,
+            logprobs=20,      # giống code Colab
             seed=0,
         )
 
-        # Format content đúng chuẩn GenAI
-        contents = [{
-            "role": "user",
-            "parts": [{"text": prompt_text}]
-        }]
+        # Định dạng contents đúng chuẩn GenAI
+        contents = [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": prompt_text}
+                ]
+            }
+        ]
 
         try:
             response = await self.client.aio.models.generate_content(
@@ -57,41 +65,62 @@ class GeminiJudge:
                 contents=contents,
                 config=config,
             )
-
-            if not response.candidates or not response.candidates[0].logprobs_result:
-                return {}
-
-            lp = response.candidates[0].logprobs_result
-
-            # candidate 0 → token đầu tiên
-            first_token_cands = lp.top_candidates[0].candidates
-
         except Exception as e:
-            print("Error in logprobs:", e)
+            print("❌ Logprob API error:", e)
             return {}
 
+        # Không có logprobs_result
+        if (
+            not response.candidates 
+            or not response.candidates[0].logprobs_result
+        ):
+            return {}
+
+        lp = response.candidates[0].logprobs_result
+
+        # Token đầu tiên được model sinh ra
+        top_candidates = lp.top_candidates[0].candidates
+
         probs = {}
-        for cand in first_token_cands:
+
+        for cand in top_candidates:
             token = cand.token.strip()
             prob = math.exp(cand.log_probability)
 
-            # CHỈ LẤY TOKEN LÀ CHUỖI SỐ
+            # Chỉ nhận token dạng số
             if token.isdigit():
                 probs[token] = prob
 
         return probs
 
+    # ======================================================================
+    # 🔥 AGGREGATE SCORE 0–100
+    # ======================================================================
     def _aggregate_0_100_score(self, score: dict) -> float:
-        total, sum_ = 0, 0
-        for key, val in score.items():
+        """
+        Tính expected value của phân phối:
+            sum(p_i * i)
+        Chỉ nhận i từ 0–100.
+        """
+
+        if not score:
+            return None
+
+        total_p = 0
+        weighted_sum = 0
+
+        for token, prob in score.items():
             try:
-                int_key = int(key)
+                num = int(token)
             except ValueError:
                 continue
-            if not (0 <= int_key <= 100):
-                continue
-            sum_ += int_key * val
-            total += val
-        if total < 0.25:
+
+            if 0 <= num <= 100:
+                weighted_sum += num * prob
+                total_p += prob
+
+        # nếu phân phối quá loãng (model không tự tin)
+        if total_p < 0.25:
             return None
-        return sum_ / total
+
+        return weighted_sum / total_p

@@ -16,7 +16,6 @@ def load_env_file(env_path: str = ".env") -> None:
                     # Nếu giá trị bắt đầu và kết thúc bằng cùng loại ngoặc kép, thì loại bỏ ngoặc ngoài cùng
                     if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
                         value = value[1:-1]
-
                     os.environ[key] = value
 
 class Config:
@@ -71,8 +70,7 @@ class Config:
         os.environ['WANDB_PROJECT'] = self.wandb_project
         os.environ['VERTEX_PROJECT_ID'] = self.vertex_project_id
         os.environ['VERTEX_LOCATION'] = self.vertex_location
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gen-lang-client-0804124651-caafac1fdb49.json")
-
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gen-lang-client-0894399630-7253c83f4441.json")
     
     def validate_credentials(self) -> bool:
         try:
