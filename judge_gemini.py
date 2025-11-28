@@ -95,18 +95,18 @@ class GeminiJudge:
             if response.candidates:
                 candidate = response.candidates[0]
                 # Thử nhiều cách lấy text
-                if hasattr(candidate, 'content') and candidate.content:
-                    if hasattr(candidate.content, 'parts'):
+                if hasattr(candidate, 'content') and candidate.content is not None:
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
                         for part in candidate.content.parts:
-                            if hasattr(part, 'text'):
+                            if hasattr(part, 'text') and part.text:
                                 text_response = part.text
                                 break
-                elif hasattr(candidate, 'parts') and candidate.parts:
+                if not text_response and hasattr(candidate, 'parts') and candidate.parts is not None:
                     for part in candidate.parts:
-                        if hasattr(part, 'text'):
+                        if hasattr(part, 'text') and part.text:
                             text_response = part.text
                             break
-                elif hasattr(candidate, 'text'):
+                if not text_response and hasattr(candidate, 'text') and candidate.text:
                     text_response = candidate.text
             
             if text_response:
