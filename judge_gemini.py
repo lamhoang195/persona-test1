@@ -1,4 +1,5 @@
 import math
+import re
 from google import genai
 from google.genai.types import GenerateContentConfig
 from config_api import config
@@ -62,15 +63,68 @@ class GeminiJudge:
         # Debug: In ra response để kiểm tra
         print(f"🔍 Response candidates: {len(response.candidates) if response.candidates else 0}")
         
-        # Không có logprobs_result
+        # Debug: In toàn bộ structure của candidate
+        if response.candidates:
+            candidate = response.candidates[0]
+            print(f"🔍 Candidate attributes: {dir(candidate)}")
+            print(f"🔍 Has logprobs_result: {hasattr(candidate, 'logprobs_result')}")
+            if hasattr(candidate, 'logprobs_result'):
+                print(f"🔍 logprobs_result value: {candidate.logprobs_result}")
+            
+            # Thử lấy text response
+            if hasattr(candidate, 'content'):
+                print(f"🔍 Content: {candidate.content}")
+            if hasattr(candidate, 'parts'):
+                print(f"🔍 Parts: {candidate.parts}")
+                if candidate.parts:
+                    for i, part in enumerate(candidate.parts):
+                        print(f"  Part {i}: {part}")
+                        if hasattr(part, 'text'):
+                            print(f"    Text: {part.text}")
+        
+        # Không có logprobs_result - thử fallback parse text
         if (
             not response.candidates 
+            or not hasattr(response.candidates[0], 'logprobs_result')
             or not response.candidates[0].logprobs_result
         ):
-            print("⚠️ No logprobs_result in response")
-            # Debug: Kiểm tra xem có text response không
-            if response.candidates and hasattr(response.candidates[0], 'content'):
-                print(f"📝 Text response: {response.candidates[0].content}")
+            print("⚠️ No logprobs_result in response, trying text fallback...")
+            
+            # Fallback: Parse text response để lấy số
+            text_response = None
+            if response.candidates:
+                candidate = response.candidates[0]
+                # Thử nhiều cách lấy text
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts'):
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text'):
+                                text_response = part.text
+                                break
+                elif hasattr(candidate, 'parts') and candidate.parts:
+                    for part in candidate.parts:
+                        if hasattr(part, 'text'):
+                            text_response = part.text
+                            break
+                elif hasattr(candidate, 'text'):
+                    text_response = candidate.text
+            
+            if text_response:
+                print(f"📝 Text response: '{text_response}'")
+                # Parse số từ text (tìm số đầu tiên trong khoảng 0-100)
+                numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
+                if numbers:
+                    # Lấy số đầu tiên hợp lệ
+                    for num_str in numbers:
+                        num = int(num_str)
+                        if 0 <= num <= 100:
+                            print(f"✅ Parsed score from text: {num}")
+                            # Trả về dict với prob = 1.0 cho số này
+                            return {num_str: 1.0}
+                print("⚠️ No valid number (0-100) found in text response")
+            else:
+                print("⚠️ No text response found")
+            
             return {}
 
         lp = response.candidates[0].logprobs_result
