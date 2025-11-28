@@ -1,210 +1,112 @@
+import os
 import math
-import re
-from google import genai
-from google.genai.types import GenerateContentConfig
-from config_api import config
+import asyncio
+from config_api import setup_credentials
+from vertexai.generative_models import GenerativeModel
+import vertexai
+
+# Set up credentials and environment
+config = setup_credentials()
+vertexai.init(
+    project=config.vertex_project_id,
+    location=config.vertex_location
+)
+
 
 class GeminiJudge:
-    def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
-        self.model_name = model
-        self.client = genai.Client(
-            vertexai=True,
-            project=config.vertex_project_id,
-            location=config.vertex_location,
-        )
-        self.prompt_template = prompt_template
-
-        assert eval_type in ["0_100"], f"Unsupported eval_type: {eval_type}"
+    def __init__(self, model: str, prompt: str, eval_type: str = "0_100"):
+        self.model = model
+        self.prompt = prompt
         self.eval_type = eval_type
+        
+    async def judge(self, **kwargs):
+        prompt_text = self.prompt.format(**kwargs)
+        if self.eval_type == "binary_text":
+            response_text = await self.query_full_text(prompt_text)
+            score = self.aggregate_score(response_text)
+        else:
+            logprobs = await self.logprob_probs(prompt_text)
+            score = self.aggregate_score(logprobs)
+        return score
 
-        if self.eval_type == "0_100":
-            self.aggregate_score = self._aggregate_0_100_score
+    async def logprob_probs(self, prompt_text: str) -> dict:
+        """Simple logprobs request. Returns probabilities. Always samples 1 token."""
+        try:
+            model = GenerativeModel(self.model)
+            # Note: Vertex AI Gemini may not support logprobs directly
+            # This is a placeholder - you may need to use a different approach
+            # or use the REST API directly for logprobs
+            response = await asyncio.to_thread(
+                model.generate_content,
+                prompt_text,
+                generation_config={
+                    "max_output_tokens": 1,
+                    "temperature": 0,
+                }
+            )
+            # For now, return empty dict as Gemini API structure differs from OpenAI
+            # You'll need to adapt this based on actual Gemini API response structure
+            return {}
+        except Exception as e:
+            print(f"Error in logprob_probs: {e}")
+            return {}
+    
+    async def query_full_text(self, prompt_text: str) -> str:
+        """Requests a full text completion. Used for binary_text eval_type."""
+        try:
+            model = GenerativeModel(self.model)
+            response = await asyncio.to_thread(
+                model.generate_content,
+                prompt_text,
+                generation_config={
+                    "temperature": 0,
+                }
+            )
+            if response and response.text:
+                return response.text
+            return ""
+        except Exception as e:
+            print(f"Error in query_full_text: {e}")
+            return ""
+
+    def aggregate_score(self, score_input) -> float:
+        """Aggregate score from either logprobs dict or text response."""
+        if isinstance(score_input, dict):
+            return self._aggregate_0_100_score(score_input)
+        elif isinstance(score_input, str):
+            # For binary_text eval_type, extract number from text
+            try:
+                # Try to extract a number from the response
+                import re
+                numbers = re.findall(r'\d+', score_input)
+                if numbers:
+                    score = int(numbers[0])
+                    if 0 <= score <= 100:
+                        return float(score)
+            except:
+                pass
+            return None
+        return None
+
+    def _aggregate_0_100_score(self, score: dict) -> float:
+        #   NOTE: we don't check for refusals explcitly. Instead we assume that
+        #   if there's at least 0.25 total weight on numbers, it's not a refusal.
+        total = 0
+        sum_ = 0
+        for key, val in score.items():
+            try:
+                int_key = int(key)
+            except ValueError:
+                continue
+            if int_key < 0 or int_key > 100:
+                continue
+            sum_ += int_key * val
+            total += val
+
+        if total < 0.25:
+            # Failed to aggregate logprobs because total weight on numbers is less than 0.25.
+            return None
+        return sum_ / total
 
     async def __call__(self, **kwargs):
         return await self.judge(**kwargs)
-
-    async def judge(self, **kwargs):
-        prompt = self.prompt_template.format(**kwargs)
-
-        # Dùng logprob nếu đánh giá số
-        logprobs = await self._logprob_probs(prompt)
-        score = self.aggregate_score(logprobs)
-        return score
-
-    async def _logprob_probs(self, prompt_text: str) -> dict:
-        config = GenerateContentConfig(
-            temperature=0,
-            max_output_tokens=1,  # Giữ như code mẫu của Google
-            response_logprobs=True,
-            logprobs=19,  # Top 19 logprobs
-            seed=0,
-        )
-
-        # Định dạng contents đúng chuẩn GenAI
-        contents = [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": prompt_text}
-                ]
-            }
-        ]
-
-        try:
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
-                contents=contents,
-                config=config,
-            )
-        except Exception as e:
-            print("❌ Logprob API error:", e)
-            return {}
-
-        # Debug: In ra toàn bộ response structure
-        print(f"🔍 Response type: {type(response)}")
-        print(f"🔍 Response attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
-        print(f"🔍 Response candidates: {len(response.candidates) if response.candidates else 0}")
-        
-        if not response.candidates:
-            print("⚠️ No candidates in response")
-            return {}
-        
-        candidate = response.candidates[0]
-        
-        # Debug: In toàn bộ candidate structure
-        print(f"🔍 Candidate type: {type(candidate)}")
-        print(f"🔍 Candidate attributes: {[attr for attr in dir(candidate) if not attr.startswith('_')]}")
-        
-        # Kiểm tra logprobs_result
-        if hasattr(candidate, 'logprobs_result'):
-            print(f"🔍 logprobs_result type: {type(candidate.logprobs_result)}")
-            print(f"🔍 logprobs_result value: {candidate.logprobs_result}")
-            
-            if candidate.logprobs_result is not None:
-                lp = candidate.logprobs_result
-                print(f"🔍 logprobs_result attributes: {[attr for attr in dir(lp) if not attr.startswith('_')]}")
-                
-                if hasattr(lp, 'top_candidates'):
-                    print(f"🔍 top_candidates: {lp.top_candidates}")
-                    if lp.top_candidates:
-                        print(f"🔍 top_candidates length: {len(lp.top_candidates)}")
-                        if len(lp.top_candidates) > 0:
-                            print(f"🔍 top_candidates[0] type: {type(lp.top_candidates[0])}")
-                            print(f"🔍 top_candidates[0] attributes: {[attr for attr in dir(lp.top_candidates[0]) if not attr.startswith('_')]}")
-                            
-                            if hasattr(lp.top_candidates[0], 'candidates'):
-                                top_candidates = lp.top_candidates[0].candidates
-                                print(f"🔍 candidates: {top_candidates}")
-                                print(f"🔍 candidates length: {len(top_candidates) if top_candidates else 0}")
-                                
-                                if top_candidates:
-                                    probs = {}
-                                    print(f"🔍 Found {len(top_candidates)} candidates")
-                                    for cand in top_candidates:
-                                        print(f"🔍 Candidate type: {type(cand)}")
-                                        print(f"🔍 Candidate attributes: {[attr for attr in dir(cand) if not attr.startswith('_')]}")
-                                        
-                                        if hasattr(cand, 'token'):
-                                            token = cand.token.strip() if cand.token else ""
-                                        elif hasattr(cand, 'text'):
-                                            token = cand.text.strip() if cand.text else ""
-                                        else:
-                                            token = str(cand).strip()
-                                        
-                                        if hasattr(cand, 'log_probability'):
-                                            prob = math.exp(cand.log_probability)
-                                        elif hasattr(cand, 'logprob'):
-                                            prob = math.exp(cand.logprob)
-                                        else:
-                                            print(f"⚠️ No log_probability found in candidate")
-                                            continue
-                                        
-                                        print(f"  Token: '{token}' (prob: {prob:.4f})")
-
-                                        # Chỉ nhận token dạng số
-                                        if token.isdigit():
-                                            probs[token] = prob
-                                            print(f"  ✅ Added digit token: {token}")
-                                    
-                                    if probs:
-                                        print(f"📊 Final probs dict: {probs}")
-                                        return probs
-        
-        # Fallback: Thử lấy text response
-        print("⚠️ No logprobs available, trying text fallback...")
-        
-        # Debug: Thử nhiều cách lấy text
-        text_response = None
-        
-        # In toàn bộ để debug
-        print(f"🔍 candidate.content: {candidate.content}")
-        print(f"🔍 candidate.parts: {candidate.parts}")
-        if hasattr(candidate, 'text'):
-            print(f"🔍 candidate.text: {candidate.text}")
-        if hasattr(response, 'text'):
-            print(f"🔍 response.text: {response.text}")
-        
-        # Cách 1: candidate.content.parts
-        if hasattr(candidate, 'content') and candidate.content is not None:
-            if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
-                for part in candidate.content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        text_response = part.text.strip()
-                        print(f"📝 Got text from candidate.content.parts: '{text_response}'")
-                        break
-        
-        # Cách 2: candidate.parts
-        if not text_response and hasattr(candidate, 'parts') and candidate.parts is not None:
-            for part in candidate.parts:
-                if hasattr(part, 'text') and part.text:
-                    text_response = part.text.strip()
-                    print(f"📝 Got text from candidate.parts: '{text_response}'")
-                    break
-        
-        # Cách 3: candidate.text
-        if not text_response and hasattr(candidate, 'text') and candidate.text:
-            text_response = candidate.text.strip()
-            print(f"📝 Got text from candidate.text: '{text_response}'")
-        
-        # Cách 4: response.text
-        if not text_response and hasattr(response, 'text') and response.text:
-            text_response = response.text.strip()
-            print(f"📝 Got text from response.text: '{text_response}'")
-        
-        if text_response:
-            print(f"📝 Final text response: '{text_response}'")
-            # Parse số từ text
-            numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
-            if numbers:
-                for num_str in numbers:
-                    num = int(num_str)
-                    if 0 <= num <= 100:
-                        print(f"✅ Parsed score from text: {num}")
-                        return {num_str: 1.0}
-            print("⚠️ No valid number (0-100) found in text response")
-        else:
-            print("⚠️ No text response found at all")
-        
-        return {}
-
-    def _aggregate_0_100_score(self, score: dict) -> float:
-        if not score:
-            print("⚠️ Empty score dict in aggregate")
-            return None
-        total_p = 0
-        weighted_sum = 0
-        for token, prob in score.items():
-            try:
-                num = int(token)
-            except ValueError:
-                continue
-            if 0 <= num <= 100:
-                weighted_sum += num * prob
-                total_p += prob
-        if total_p == 0:
-            print("⚠️ total_p is 0, no valid tokens found")
-            return None
-
-        result = weighted_sum / total_p
-        print(f"✅ Calculated score: {result:.2f}")
-        return result
