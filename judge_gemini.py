@@ -2,7 +2,8 @@ import os
 import math
 import asyncio
 from config_api import setup_credentials
-from vertexai.generative_models import GenerativeModel
+from google import genai
+from google.genai.types import GenerateContentConfig
 import vertexai
 
 # Set up credentials and environment
@@ -11,6 +12,9 @@ vertexai.init(
     project=config.vertex_project_id,
     location=config.vertex_location
 )
+
+# Create genai client
+client = genai.Client(vertexai=True, project=config.vertex_project_id, location=config.vertex_location)
 
 
 class GeminiJudge:
@@ -32,21 +36,37 @@ class GeminiJudge:
     async def logprob_probs(self, prompt_text: str) -> dict:
         """Simple logprobs request. Returns probabilities. Always samples 1 token."""
         try:
-            model = GenerativeModel(self.model)
-            # Note: Vertex AI Gemini may not support logprobs directly
-            # This is a placeholder - you may need to use a different approach
-            # or use the REST API directly for logprobs
             response = await asyncio.to_thread(
-                model.generate_content,
-                prompt_text,
-                generation_config={
-                    "max_output_tokens": 1,
-                    "temperature": 0,
-                }
+                client.models.generate_content,
+                model=self.model,
+                contents=prompt_text,
+                config=GenerateContentConfig(
+                    max_output_tokens=1,
+                    temperature=0,
+                    response_logprobs=True,
+                    logprobs=19,  # top_logprobs=19 like in original code
+                )
             )
-            # For now, return empty dict as Gemini API structure differs from OpenAI
-            # You'll need to adapt this based on actual Gemini API response structure
-            return {}
+            
+            result = {}
+            if response.candidates and response.candidates[0].logprobs_result:
+                logprobs_result = response.candidates[0].logprobs_result
+                
+                # Get chosen token (first token generated)
+                if logprobs_result.chosen_candidates:
+                    chosen = logprobs_result.chosen_candidates[0]
+                    result[chosen.token] = float(math.exp(chosen.log_probability))
+                
+                # Get top alternative tokens
+                if logprobs_result.top_candidates and len(logprobs_result.top_candidates) > 0:
+                    top_alternatives = logprobs_result.top_candidates[0].candidates
+                    for alt_token_info in top_alternatives:
+                        token = alt_token_info.token
+                        # Skip if already added (chosen token)
+                        if token not in result:
+                            result[token] = float(math.exp(alt_token_info.log_probability))
+            
+            return result
         except Exception as e:
             print(f"Error in logprob_probs: {e}")
             return {}
@@ -54,13 +74,13 @@ class GeminiJudge:
     async def query_full_text(self, prompt_text: str) -> str:
         """Requests a full text completion. Used for binary_text eval_type."""
         try:
-            model = GenerativeModel(self.model)
             response = await asyncio.to_thread(
-                model.generate_content,
-                prompt_text,
-                generation_config={
-                    "temperature": 0,
-                }
+                client.models.generate_content,
+                model=self.model,
+                contents=prompt_text,
+                config=GenerateContentConfig(
+                    temperature=0,
+                )
             )
             if response and response.text:
                 return response.text
