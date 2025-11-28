@@ -59,30 +59,62 @@ class GeminiJudge:
             print("❌ Logprob API error:", e)
             return {}
 
+        # Debug: In ra response để kiểm tra
+        print(f"🔍 Response candidates: {len(response.candidates) if response.candidates else 0}")
+        
         # Không có logprobs_result
         if (
             not response.candidates 
             or not response.candidates[0].logprobs_result
         ):
+            print("⚠️ No logprobs_result in response")
+            # Debug: Kiểm tra xem có text response không
+            if response.candidates and hasattr(response.candidates[0], 'content'):
+                print(f"📝 Text response: {response.candidates[0].content}")
             return {}
 
         lp = response.candidates[0].logprobs_result
 
+        # Debug: Kiểm tra cấu trúc logprobs
+        print(f"🔍 Logprobs structure: top_candidates length = {len(lp.top_candidates) if hasattr(lp, 'top_candidates') and lp.top_candidates else 0}")
+        
+        # Kiểm tra top_candidates có tồn tại và không rỗng
+        if not hasattr(lp, 'top_candidates') or not lp.top_candidates:
+            print("⚠️ No top_candidates in logprobs_result")
+            return {}
+        
+        if len(lp.top_candidates) == 0:
+            print("⚠️ top_candidates is empty")
+            return {}
+
         # Token đầu tiên được model sinh ra
         top_candidates = lp.top_candidates[0].candidates
+        
+        if not top_candidates:
+            print("⚠️ No candidates in top_candidates[0]")
+            return {}
 
         probs = {}
+        print(f"🔍 Found {len(top_candidates)} candidates")
         for cand in top_candidates:
             token = cand.token.strip()
             prob = math.exp(cand.log_probability)
+            
+            print(f"  Token: '{token}' (prob: {prob:.4f})")
 
             # Chỉ nhận token dạng số
             if token.isdigit():
                 probs[token] = prob
+                print(f"  ✅ Added digit token: {token}")
+            else:
+                print(f"  ❌ Skipped non-digit token: '{token}'")
+        
+        print(f"📊 Final probs dict: {probs}")
         return probs
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         if not score:
+            print("⚠️ Empty score dict in aggregate")
             return None
         total_p = 0
         weighted_sum = 0
@@ -95,6 +127,9 @@ class GeminiJudge:
                 weighted_sum += num * prob
                 total_p += prob
         if total_p == 0:
+            print("⚠️ total_p is 0, no valid tokens found")
             return None
 
-        return weighted_sum / total_p
+        result = weighted_sum / total_p
+        print(f"✅ Calculated score: {result:.2f}")
+        return result
