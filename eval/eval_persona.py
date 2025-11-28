@@ -36,7 +36,7 @@ def load_jsonl(path):
 def sample_steering(
     model, tokenizer, conversations,
     vector, layer, coef,
-    bs=20, top_p=1, max_tokens=1000, temperature=1,
+    bs=2, top_p=1, max_tokens=1000, temperature=1,
     min_tokens=1, steering_type="response"
 ):
     tokenizer.padding_side = "left"
@@ -292,6 +292,8 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                 steering_type=steering_type
             )
         )
+        # Combine list of DataFrames into a single DataFrame
+        outputs = pd.concat(outputs_list, ignore_index=True)
     else:
         outputs = []
         for question in tqdm(questions, desc=f"Processing {trait} questions"):
@@ -304,6 +306,8 @@ def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steeri
                     )
                 )
             )
+        # Combine list of DataFrames into a single DataFrame
+        outputs = pd.concat(outputs, ignore_index=True)
 
     outputs.to_csv(output_path, index=False)
     print(output_path)
