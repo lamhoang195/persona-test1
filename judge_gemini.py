@@ -94,7 +94,7 @@ class GeminiJudge:
             if 0 <= num <= 100:
                 weighted_sum += num * prob
                 total_p += prob
-        if total_p < 0:
+        if total_p == 0:
             return None
 
         return weighted_sum / total_p
