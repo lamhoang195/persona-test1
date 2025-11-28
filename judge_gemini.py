@@ -32,11 +32,18 @@ class GeminiJudge:
         return score
 
     async def _logprob_probs(self, prompt_text: str) -> dict:
-        config = GenerateContentConfig(
+        # Thử 2 cách: một với logprobs, một với text generation
+        config_logprob = GenerateContentConfig(
             temperature=0,
-            max_output_tokens=1,
+            max_output_tokens=10,  # Tăng lên để model có thể generate
             response_logprobs=True,
             logprobs=19,
+            seed=0,
+        )
+        
+        config_text = GenerateContentConfig(
+            temperature=0,
+            max_output_tokens=10,  # Đủ để generate số
             seed=0,
         )
 
@@ -50,138 +57,144 @@ class GeminiJudge:
             }
         ]
 
+        # Thử lấy logprobs trước
         try:
             response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=contents,
-                config=config,
+                config=config_logprob,
             )
         except Exception as e:
             print("❌ Logprob API error:", e)
-            return {}
+            # Fallback: thử generate text thông thường
+            try:
+                response = await self.client.aio.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config_text,
+                )
+            except Exception as e2:
+                print("❌ Text generation API error:", e2)
+                return {}
 
         # Debug: In ra response để kiểm tra
         print(f"🔍 Response candidates: {len(response.candidates) if response.candidates else 0}")
         
-        # Debug: In toàn bộ structure của candidate
-        if response.candidates:
-            candidate = response.candidates[0]
-            print(f"🔍 Candidate attributes: {dir(candidate)}")
-            print(f"🔍 Has logprobs_result: {hasattr(candidate, 'logprobs_result')}")
-            if hasattr(candidate, 'logprobs_result'):
-                print(f"🔍 logprobs_result value: {candidate.logprobs_result}")
-            
-            # Thử lấy text response
-            if hasattr(candidate, 'content'):
-                print(f"🔍 Content: {candidate.content}")
-            if hasattr(candidate, 'parts'):
-                print(f"🔍 Parts: {candidate.parts}")
-                if candidate.parts:
-                    for i, part in enumerate(candidate.parts):
-                        print(f"  Part {i}: {part}")
-                        if hasattr(part, 'text'):
-                            print(f"    Text: {part.text}")
-            
-            # Thử lấy text từ response object trực tiếp
-            if hasattr(response, 'text'):
-                print(f"🔍 Response.text: {response.text}")
+        if not response.candidates:
+            print("⚠️ No candidates in response")
+            return {}
         
-        # Không có logprobs_result - thử fallback parse text
-        if (
-            not response.candidates 
-            or not hasattr(response.candidates[0], 'logprobs_result')
-            or response.candidates[0].logprobs_result is None
-        ):
-            print("⚠️ No logprobs_result in response, trying text fallback...")
+        candidate = response.candidates[0]
+        
+        # Kiểm tra logprobs_result
+        has_logprobs = (
+            hasattr(candidate, 'logprobs_result') 
+            and candidate.logprobs_result is not None
+        )
+        
+        if has_logprobs:
+            print("✅ Found logprobs_result")
+            lp = candidate.logprobs_result
             
-            # Fallback: Parse text response để lấy số
-            text_response = None
-            if response.candidates:
-                candidate = response.candidates[0]
-                
-                # Cách 1: Thử lấy từ response.text (nếu có)
-                if hasattr(response, 'text') and response.text:
-                    text_response = response.text
-                    print(f"📝 Got text from response.text: '{text_response}'")
-                
-                # Cách 2: Thử lấy từ candidate.content.parts
-                if not text_response and hasattr(candidate, 'content') and candidate.content is not None:
-                    if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
-                        for part in candidate.content.parts:
-                            if hasattr(part, 'text') and part.text:
-                                text_response = part.text
-                                print(f"📝 Got text from candidate.content.parts: '{text_response}'")
-                                break
-                
-                # Cách 3: Thử lấy từ candidate.parts
-                if not text_response and hasattr(candidate, 'parts') and candidate.parts is not None:
-                    for part in candidate.parts:
-                        if hasattr(part, 'text') and part.text:
-                            text_response = part.text
-                            print(f"📝 Got text from candidate.parts: '{text_response}'")
-                            break
-                
-                # Cách 4: Thử lấy từ candidate.text
-                if not text_response and hasattr(candidate, 'text') and candidate.text:
-                    text_response = candidate.text
-                    print(f"📝 Got text from candidate.text: '{text_response}'")
-            
-            if text_response:
-                print(f"📝 Final text response: '{text_response}'")
-                # Parse số từ text (tìm số đầu tiên trong khoảng 0-100)
-                numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
-                if numbers:
-                    # Lấy số đầu tiên hợp lệ
-                    for num_str in numbers:
-                        num = int(num_str)
-                        if 0 <= num <= 100:
-                            print(f"✅ Parsed score from text: {num}")
-                            # Trả về dict với prob = 1.0 cho số này
-                            return {num_str: 1.0}
-                print("⚠️ No valid number (0-100) found in text response")
+            if not hasattr(lp, 'top_candidates') or not lp.top_candidates:
+                print("⚠️ No top_candidates in logprobs_result")
             else:
-                print("⚠️ No text response found - model may not support logprobs or text generation")
-            
-            return {}
+                if len(lp.top_candidates) == 0:
+                    print("⚠️ top_candidates is empty")
+                else:
+                    top_candidates = lp.top_candidates[0].candidates
+                    
+                    if not top_candidates:
+                        print("⚠️ No candidates in top_candidates[0]")
+                    else:
+                        probs = {}
+                        print(f"🔍 Found {len(top_candidates)} candidates")
+                        for cand in top_candidates:
+                            token = cand.token.strip()
+                            prob = math.exp(cand.log_probability)
+                            
+                            print(f"  Token: '{token}' (prob: {prob:.4f})")
 
-        lp = response.candidates[0].logprobs_result
-
-        # Debug: Kiểm tra cấu trúc logprobs
-        print(f"🔍 Logprobs structure: top_candidates length = {len(lp.top_candidates) if hasattr(lp, 'top_candidates') and lp.top_candidates else 0}")
+                            # Chỉ nhận token dạng số
+                            if token.isdigit():
+                                probs[token] = prob
+                                print(f"  ✅ Added digit token: {token}")
+                        
+                        if probs:
+                            print(f"📊 Final probs dict: {probs}")
+                            return probs
         
-        # Kiểm tra top_candidates có tồn tại và không rỗng
-        if not hasattr(lp, 'top_candidates') or not lp.top_candidates:
-            print("⚠️ No top_candidates in logprobs_result")
-            return {}
+        # Fallback: Parse text response
+        print("⚠️ No logprobs available, trying text fallback...")
         
-        if len(lp.top_candidates) == 0:
-            print("⚠️ top_candidates is empty")
-            return {}
-
-        # Token đầu tiên được model sinh ra
-        top_candidates = lp.top_candidates[0].candidates
+        # Thử nhiều cách lấy text
+        text_response = None
         
-        if not top_candidates:
-            print("⚠️ No candidates in top_candidates[0]")
-            return {}
-
-        probs = {}
-        print(f"🔍 Found {len(top_candidates)} candidates")
-        for cand in top_candidates:
-            token = cand.token.strip()
-            prob = math.exp(cand.log_probability)
-            
-            print(f"  Token: '{token}' (prob: {prob:.4f})")
-
-            # Chỉ nhận token dạng số
-            if token.isdigit():
-                probs[token] = prob
-                print(f"  ✅ Added digit token: {token}")
-            else:
-                print(f"  ❌ Skipped non-digit token: '{token}'")
+        # Cách 1: candidate.content.parts
+        if hasattr(candidate, 'content') and candidate.content is not None:
+            if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_response = part.text.strip()
+                        print(f"📝 Got text from candidate.content.parts: '{text_response}'")
+                        break
         
-        print(f"📊 Final probs dict: {probs}")
-        return probs
+        # Cách 2: candidate.parts
+        if not text_response and hasattr(candidate, 'parts') and candidate.parts is not None:
+            for part in candidate.parts:
+                if hasattr(part, 'text') and part.text:
+                    text_response = part.text.strip()
+                    print(f"📝 Got text from candidate.parts: '{text_response}'")
+                    break
+        
+        # Cách 3: candidate.text
+        if not text_response and hasattr(candidate, 'text') and candidate.text:
+            text_response = candidate.text.strip()
+            print(f"📝 Got text from candidate.text: '{text_response}'")
+        
+        # Cách 4: response.text (nếu có)
+        if not text_response and hasattr(response, 'text') and response.text:
+            text_response = response.text.strip()
+            print(f"📝 Got text from response.text: '{text_response}'")
+        
+        # Cách 5: Thử gọi lại API chỉ để lấy text (nếu vẫn không có)
+        if not text_response:
+            print("⚠️ No text found, trying separate text generation call...")
+            try:
+                text_response_obj = await self.client.aio.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config_text,
+                )
+                if text_response_obj.candidates:
+                    text_candidate = text_response_obj.candidates[0]
+                    if hasattr(text_candidate, 'content') and text_candidate.content:
+                        if hasattr(text_candidate.content, 'parts') and text_candidate.content.parts:
+                            for part in text_candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    text_response = part.text.strip()
+                                    print(f"📝 Got text from separate API call: '{text_response}'")
+                                    break
+            except Exception as e:
+                print(f"❌ Separate text generation error: {e}")
+        
+        if text_response:
+            print(f"📝 Final text response: '{text_response}'")
+            # Parse số từ text (tìm số đầu tiên trong khoảng 0-100)
+            numbers = re.findall(r'\b(\d{1,2}|100)\b', text_response)
+            if numbers:
+                # Lấy số đầu tiên hợp lệ
+                for num_str in numbers:
+                    num = int(num_str)
+                    if 0 <= num <= 100:
+                        print(f"✅ Parsed score from text: {num}")
+                        # Trả về dict với prob = 1.0 cho số này
+                        return {num_str: 1.0}
+            print("⚠️ No valid number (0-100) found in text response")
+        else:
+            print("⚠️ No text response found at all")
+        
+        return {}
 
     def _aggregate_0_100_score(self, score: dict) -> float:
         if not score:
