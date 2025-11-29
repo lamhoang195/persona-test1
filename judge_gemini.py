@@ -37,7 +37,7 @@ class GeminiJudge:
             model=self.model,
             contents=[prompt_text],
             config=GenerateContentConfig(
-                max_output_tokens=1,
+                max_output_tokens=5,
                 temperature=0.0,
                 response_logprobs=True,
                 logprobs=19,  # số lượng top candidates để đánh giá
