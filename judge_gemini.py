@@ -18,9 +18,15 @@ class GeminiJudge:
             raise ValueError(f"Invalid eval_type: {self.eval_type}")
 
         self.prompt_template = prompt_template
-        # Khởi tạo Gemini client (dùng credentials đã setup ở trên)
-        self.client = genai.Client()
-        
+
+        # --- SỬA Ở ĐÂY: khởi tạo client với Vertex AI ---
+        self.client = genai.Client(
+            vertexai=True,
+            project=config.vertex_project_id,
+            location=config.vertex_location,
+        )
+        # ------------------------------------------------
+
     async def judge(self, **kwargs):
         messages = [dict(role='user', content=self.prompt_template.format(**kwargs))]
         if self.eval_type == "binary_text":
