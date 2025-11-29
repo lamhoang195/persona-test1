@@ -40,7 +40,7 @@ class GeminiJudge:
                 max_output_tokens=1,
                 temperature=0.0,
                 response_logprobs=True,
-                logprobs=100,  # số lượng top candidates để đánh giá
+                logprobs=19,  # số lượng top candidates để đánh giá
                 seed=0,
             ),
         )
