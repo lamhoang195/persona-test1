@@ -19,13 +19,11 @@ class GeminiJudge:
 
         self.prompt_template = prompt_template
 
-        # --- SỬA Ở ĐÂY: khởi tạo client với Vertex AI ---
         self.client = genai.Client(
             vertexai=True,
             project=config.vertex_project_id,
             location=config.vertex_location,
         )
-        # ------------------------------------------------
 
     async def judge(self, **kwargs):
         messages = [dict(role='user', content=self.prompt_template.format(**kwargs))]
@@ -46,7 +44,7 @@ class GeminiJudge:
         if not prompt:
             return {}
 
-        # Gọi Gemini với logprobs (tương đương logprobs=True, top_logprobs=20, max_tokens=1, temperature=0)
+        # Gọi Gemini với logprobs
         response = self.client.models.generate_content(
             model=self.model,
             contents=prompt,
@@ -66,16 +64,48 @@ class GeminiJudge:
         if not logprobs_result or not logprobs_result.top_candidates:
             return {}
 
+        # ======= DEBUG: In logprobs giống code mẫu của Google =======
+        if logprobs_result.chosen_candidates:
+            print("===== Gemini raw logprobs debug =====")
+            for i, chosen_candidate in enumerate(logprobs_result.chosen_candidates):
+                print(
+                    f"Token: '{chosen_candidate.token}' "
+                    f"({chosen_candidate.log_probability:.4f})"
+                )
+                if i < len(logprobs_result.top_candidates):
+                    top_alternatives = logprobs_result.top_candidates[i].candidates
+                    alternatives = [
+                        alt
+                        for alt in top_alternatives
+                        if alt.token != chosen_candidate.token
+                    ]
+                    if alternatives:
+                        print("Alternative Tokens:")
+                        for alt_token_info in alternatives:
+                            print(
+                                f"  - '{alt_token_info.token}': "
+                                f"({alt_token_info.log_probability:.4f})"
+                            )
+                print("-" * 20)
+            print("===== End Gemini raw logprobs debug =====")
+        # =============================================================
+
         # Lấy top candidates của token đầu tiên (giống completion.choices[0].logprobs.content[0].top_logprobs)
         top_candidates = logprobs_result.top_candidates[0].candidates
 
         result = {}
+        total_prob = 0.0
         for el in top_candidates:
             # log_probability là log p(token), exponentiate để ra xác suất giống code cũ
-            result[el.token] = float(math.exp(el.log_probability))
+            p = float(math.exp(el.log_probability))
+            total_prob += p
+            result[el.token] = p
+
+        # Debug thêm tổng xác suất để hiểu vì sao aggregate có thể ra None/NaN
+        print(f"Total probability mass (top {len(top_candidates)} tokens): {total_prob:.6f}")
 
         return result
-    
+
     async def query_full_text(self, messages) -> str:
         """Requests a full text completion. Used for binary_text eval_type."""
         completion = await openai.chat.completions.create(
