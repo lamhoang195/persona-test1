@@ -40,13 +40,11 @@ class GeminiJudge:
                 max_output_tokens=5,
                 temperature=0.0,
                 response_logprobs=True,
-                logprobs=19,  # số lượng top candidates để đánh giá
+                logprobs=19,
                 seed=0,
             ),
         )
 
-        # Parse logprobs_result
-        # Đây là giả định dựa trên cấu trúc VertexAI GenAI
         result = {}
         try:
             top_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
@@ -56,7 +54,6 @@ class GeminiJudge:
                 score = prob * 100
                 result[token] = score
         except Exception:
-            # fallback
             result = {}
         return result
 
