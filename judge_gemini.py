@@ -28,27 +28,30 @@ class GeminiJudge:
     async def logprob_prob(self, prompt_text: str) -> dict:
         response = self.client.models.generate_content(
             model=self.model,
-            contents=[prompt_text],
+            contents=prompt_text,
             config=GenerateContentConfig(
-                max_output_tokens=5,
-                temperature=0.0,
-                response_logprobs=True,
+                max_output_tokens=1,
+                temperature=0,
+                candidate_count=1,
                 logprobs=19,
-                seed=0,
+                response_logprobs=True,
+                top_k=10
             ),
         )
 
-        result = {}
         try:
             top_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
-            for tc in top_candidates:
-                token = getattr(tc, "token", str(tc))
-                prob = math.exp(tc.log_probability)
-                score = prob * 100
-                result[token] = score
         except Exception:
-            result = {}
-        return result
+            print("Không lấy được logprobs.")
+            top_candidates = []
+
+        # Chuyển logprob -> probability
+        result = {}
+        for c in top_candidates:
+            result[c.token] = math.exp(c.log_probability)
+
+        # In ra
+        print(result)
 
     def _aggregate_0_100_score(self, score_dict: dict) -> float:
         """
