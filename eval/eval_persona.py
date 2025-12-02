@@ -100,7 +100,7 @@ class Question():
             judge_prompts: dict,
             temperature: float = 1,
             system: str = None,
-            judge: str = "gemini-2.5-flash",
+            judge: str = "gemini-2.0-flash",
             judge_eval_type: str = "0_10",
             **ignored_extra_args
         ):
@@ -217,7 +217,7 @@ class Question():
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
-def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.5-flash", eval_type="0_10", version="extract"):
+def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.0-flash", eval_type="0_10", version="extract"):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
     judge_prompts = {}
     prompt_template = trait_data["eval_prompt"]
@@ -252,7 +252,7 @@ def load_persona_questions(trait, temperature=1, persona_instructions_type=None,
             ))
     return questions
 
-def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.5-flash", version="extract", overwrite=False):
+def main(model, trait, output_path, coef=0, vector_path=None, layer=None, steering_type="response", max_tokens=1000, n_per_question=2, batch_process=True, max_concurrent_judges=5, persona_instruction_type=None, assistant_name=None, judge_model="gemini-2.0-flash", version="extract", overwrite=False):
     # Evaluate a model on all questions from the evaluation json file
     if os.path.exists(output_path) and not overwrite:
         print(f"Output path '{output_path}' already exists — skipping evaluation.")
