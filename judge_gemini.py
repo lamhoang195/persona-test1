@@ -39,10 +39,30 @@ class GeminiJudge:
             ),
         )
 
+        # Debug: In ra cấu trúc response
+        print(f"Response type: {type(response)}")
+        print(f"Has candidates: {hasattr(response, 'candidates')}")
+        if hasattr(response, 'candidates') and len(response.candidates) > 0:
+            print(f"Candidate type: {type(response.candidates[0])}")
+            print(f"Has logprobs_result: {hasattr(response.candidates[0], 'logprobs_result')}")
+            if hasattr(response.candidates[0], 'logprobs_result'):
+                print(f"logprobs_result type: {type(response.candidates[0].logprobs_result)}")
+                print(f"logprobs_result value: {response.candidates[0].logprobs_result}")
+
         try:
             top_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
-        except Exception:
-            print("Không lấy được logprobs.")
+        except Exception as e:
+            print(f"Không lấy được logprobs. Error: {type(e).__name__}: {e}")
+            # Thử các cách truy cập khác
+            try:
+                if hasattr(response.candidates[0], 'logprobs_result'):
+                    logprobs_result = response.candidates[0].logprobs_result
+                    print(f"logprobs_result attributes: {dir(logprobs_result)}")
+                    # Thử truy cập trực tiếp
+                    if hasattr(logprobs_result, 'top_candidates'):
+                        print(f"top_candidates: {logprobs_result.top_candidates}")
+            except Exception as e2:
+                print(f"Debug error: {e2}")
             top_candidates = []
 
         # Chuyển logprob -> probability
