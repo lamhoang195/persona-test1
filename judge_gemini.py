@@ -63,7 +63,7 @@ class GeminiJudge:
                 token_score = int(token_str)
             except ValueError:
                 continue
-            if token_score < 0 or token_score > 100:
+            if token_score < 0 or token_score > 9:
                 continue
             weighted_sum += token_score * prob
             total_weight += prob
