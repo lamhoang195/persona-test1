@@ -7,7 +7,7 @@ from google.genai.types import GenerateContentConfig
 config = setup_credentials()
 
 class GeminiJudge:
-    def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
+    def __init__(self, model: str, prompt_template: str, eval_type: str = "0_10"):
         self.model = model
         assert eval_type in ["0_10"], "eval_type must be 0_10"
         self.eval_type = eval_type
