@@ -39,36 +39,52 @@ class GeminiJudge:
             ),
         )
 
-        # Debug: In ra cấu trúc response
-        print(f"Response type: {type(response)}")
-        print(f"Has candidates: {hasattr(response, 'candidates')}")
-        if hasattr(response, 'candidates') and len(response.candidates) > 0:
-            print(f"Candidate type: {type(response.candidates[0])}")
-            print(f"Has logprobs_result: {hasattr(response.candidates[0], 'logprobs_result')}")
-            if hasattr(response.candidates[0], 'logprobs_result'):
-                print(f"logprobs_result type: {type(response.candidates[0].logprobs_result)}")
-                print(f"logprobs_result value: {response.candidates[0].logprobs_result}")
-
+        result = {}
+        
         try:
+            # Thử cách 1: Cấu trúc hiện tại
             top_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
-        except Exception as e:
-            print(f"Không lấy được logprobs. Error: {type(e).__name__}: {e}")
-            # Thử các cách truy cập khác
+        except Exception as e1:
             try:
+                # Thử cách 2: Truy cập trực tiếp từ candidate
                 if hasattr(response.candidates[0], 'logprobs_result'):
                     logprobs_result = response.candidates[0].logprobs_result
-                    print(f"logprobs_result attributes: {dir(logprobs_result)}")
-                    # Thử truy cập trực tiếp
+                    # Có thể top_candidates là list trực tiếp
                     if hasattr(logprobs_result, 'top_candidates'):
-                        print(f"top_candidates: {logprobs_result.top_candidates}")
+                        if isinstance(logprobs_result.top_candidates, list) and len(logprobs_result.top_candidates) > 0:
+                            top_candidate = logprobs_result.top_candidates[0]
+                            if hasattr(top_candidate, 'candidates'):
+                                top_candidates = top_candidate.candidates
+                            elif hasattr(top_candidate, 'tokens'):
+                                # Có thể tokens trực tiếp
+                                top_candidates = top_candidate.tokens
+                            else:
+                                # Có thể chính nó là list candidates
+                                top_candidates = logprobs_result.top_candidates
+                    elif hasattr(logprobs_result, 'candidates'):
+                        top_candidates = logprobs_result.candidates
+                    else:
+                        print(f"Không lấy được logprobs. logprobs_result structure: {dir(logprobs_result)}")
+                        top_candidates = []
+                else:
+                    print(f"Không lấy được logprobs. Candidate structure: {dir(response.candidates[0])}")
+                    top_candidates = []
             except Exception as e2:
-                print(f"Debug error: {e2}")
-            top_candidates = []
+                print(f"Không lấy được logprobs. Error: {type(e2).__name__}: {e2}")
+                # In toàn bộ response để debug
+                print(f"Response structure: {dir(response)}")
+                if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    print(f"Candidate structure: {dir(response.candidates[0])}")
+                top_candidates = []
 
         # Chuyển logprob -> probability
-        result = {}
         for c in top_candidates:
-            result[c.token] = math.exp(c.log_probability)
+            if hasattr(c, 'token') and hasattr(c, 'log_probability'):
+                result[c.token] = math.exp(c.log_probability)
+            elif isinstance(c, dict):
+                # Nếu là dict
+                if 'token' in c and 'log_probability' in c:
+                    result[c['token']] = math.exp(c['log_probability'])
 
         # In ra
         print(result)
