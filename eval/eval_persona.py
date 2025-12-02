@@ -101,7 +101,7 @@ class Question():
             temperature: float = 1,
             system: str = None,
             judge: str = "gemini-2.5-flash",
-            judge_eval_type: str = "0_100",
+            judge_eval_type: str = "0_10",
             **ignored_extra_args
         ):
         self.id = id
@@ -112,7 +112,7 @@ class Question():
             metric: GeminiJudge(
                 judge,
                 prompt,
-                eval_type=judge_eval_type if metric != "coherence" else "0_100"
+                eval_type=judge_eval_type if metric != "coherence" else "0_10"
             )
             for metric, prompt in judge_prompts.items()
         }
