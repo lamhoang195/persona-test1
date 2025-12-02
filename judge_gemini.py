@@ -52,6 +52,7 @@ class GeminiJudge:
 
         # In ra
         print(result)
+        return result
 
     def _aggregate_0_100_score(self, score_dict: dict) -> float:
         """
