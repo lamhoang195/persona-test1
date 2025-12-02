@@ -32,7 +32,7 @@ class GeminiJudge:
             config=GenerateContentConfig(
                 max_output_tokens=1,
                 temperature=0,
-                candidate_count=1,
+                candidate_count=0,
                 logprobs=19,
                 response_logprobs=True,
                 top_k=10
