@@ -217,7 +217,7 @@ class Question():
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
-def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.5-flash", eval_type="0_100", version="extract"):
+def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.5-flash", eval_type="0_10", version="extract"):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
     judge_prompts = {}
     prompt_template = trait_data["eval_prompt"]

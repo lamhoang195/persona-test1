@@ -9,7 +9,7 @@ config = setup_credentials()
 class GeminiJudge:
     def __init__(self, model: str, prompt_template: str, eval_type: str = "0_100"):
         self.model = model
-        assert eval_type in ["0_100"], "eval_type must be 0_100"
+        assert eval_type in ["0_10"], "eval_type must be 0_10"
         self.eval_type = eval_type
         self.prompt_template = prompt_template
 
@@ -22,7 +22,7 @@ class GeminiJudge:
     async def judge(self, **kwargs) -> float:
         prompt_text = self.prompt_template.format(**kwargs)
         response = await self.logprob_prob(prompt_text)
-        score = self._aggregate_0_100_score(response)
+        score = self._aggregate_0_10_score(response)
         return score
 
     async def logprob_prob(self, prompt_text: str) -> dict:
@@ -52,13 +52,13 @@ class GeminiJudge:
 
         return result
 
-    def _aggregate_0_100_score(self, score_dict: dict) -> float:
-        """
-        Convert logprob dict to a weighted score between 0-100
-        """
+    def _aggregate_0_10_score(self, score: dict) -> float:
+        if "REFUSAL" in score and score["REFUSAL"] > max(score.get(str(i), 0) for i in range(10)):
+            return None
+
         total_weight = 0
         weighted_sum = 0
-        for token_str, prob in score_dict.items():
+        for token_str, prob in score.items():
             try:
                 token_score = int(token_str)
             except ValueError:
