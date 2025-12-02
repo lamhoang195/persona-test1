@@ -21,7 +21,7 @@ class GeminiJudge:
 
     async def judge(self, **kwargs) -> float:
         prompt_text = self.prompt_template.format(**kwargs)
-        response = await self._generate_logprobs(prompt_text)
+        response = await self.logprob_prob(prompt_text)
         score = self._aggregate_0_100_score(response)
         return score
 
