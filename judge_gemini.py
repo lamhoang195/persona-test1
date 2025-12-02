@@ -20,19 +20,12 @@ class GeminiJudge:
         )
 
     async def judge(self, **kwargs) -> float:
-        """
-        Return score 0-100 for the given prompt/answer pair
-        """
         prompt_text = self.prompt_template.format(**kwargs)
         response = await self._generate_logprobs(prompt_text)
         score = self._aggregate_0_100_score(response)
         return score
 
-    async def _generate_logprobs(self, prompt_text: str) -> dict:
-        """
-        Call Vertex AI to get logprobs for the model's first token.
-        Return a dict mapping token -> probability.
-        """
+    async def logprob_prob(self, prompt_text: str) -> dict:
         response = self.client.models.generate_content(
             model=self.model,
             contents=[prompt_text],
