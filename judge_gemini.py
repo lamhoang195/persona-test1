@@ -1,6 +1,7 @@
 import math
 from config_api import setup_credentials
-from vertexai.generative_models import GenerativeModel, GenerationConfig
+from google import genai
+from google.genai.types import GenerateContentConfig
 
 # Set up credentials and environment
 config = setup_credentials()
@@ -11,9 +12,12 @@ class GeminiJudge:
         assert eval_type in ["0_100"], "eval_type must be 0_100"
         self.eval_type = eval_type
         self.prompt_template = prompt_template
-        
-        # Dùng GenerativeModel thay vì genai.Client
-        self.client = GenerativeModel(model_name=model)
+
+        self.client = genai.Client(
+            vertexai=True,
+            project=config.vertex_project_id,
+            location=config.vertex_location,
+        )
 
     async def judge(self, **kwargs) -> float:
         prompt_text = self.prompt_template.format(**kwargs)
@@ -22,10 +26,10 @@ class GeminiJudge:
         return score
 
     async def logprob_prob(self, prompt_text: str) -> dict:
-        # Dùng generate_content với GenerationConfig
-        response = self.client.generate_content(
-            prompt_text,
-            generation_config=GenerationConfig(
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt_text,
+            config=GenerateContentConfig(
                 max_output_tokens=1,
                 temperature=0,
                 candidate_count=0,
@@ -35,29 +39,23 @@ class GeminiJudge:
             ),
         )
 
-        result = {}
-        
         try:
-            # Cấu trúc giống code của bạn
             top_candidates = response.candidates[0].logprobs_result.top_candidates[0].candidates
-        except Exception as e:
-            print(f"Không lấy được logprobs. Error: {type(e).__name__}: {e}")
+        except Exception:
+            print("Không lấy được logprobs.")
             top_candidates = []
 
         # Chuyển logprob -> probability
+        result = {}
         for c in top_candidates:
             result[c.token] = math.exp(c.log_probability)
 
-        # In ra
-        print(result)
         return result
 
     def _aggregate_0_100_score(self, score_dict: dict) -> float:
         """
         Convert logprob dict to a weighted score between 0-100
         """
-        if score_dict is None or len(score_dict) == 0:
-            return None
         total_weight = 0
         weighted_sum = 0
         for token_str, prob in score_dict.items():
@@ -69,7 +67,7 @@ class GeminiJudge:
                 continue
             weighted_sum += token_score * prob
             total_weight += prob
-        if total_weight < 0.25:
+        if total_weight == 0:
             return None
         return weighted_sum / total_weight
 
