@@ -6,27 +6,22 @@ import random
 import asyncio
 import logging
 import pandas as pd
-import vertexai
 
 from tqdm import tqdm
 from tqdm import trange
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from judge_gemini import GeminiJudge
+from judge_local import LocalJudge
 from activation_steer import ActivationSteerer
 from models.model_utils import ModelUtils
 from models.adapter_finetune import load_model_basic, load_model
 from eval.prompts import Prompts
-from config_api import setup_credentials
+from config_api import load_env_file
 
 logging.getLogger("httpx").setLevel(logging.ERROR)
 
-# Set up credentials and environment
-config = setup_credentials()
-vertexai.init(
-    project=config.vertex_project_id,
-    location=config.vertex_location
-)
+# Load .env so that HF_TOKEN (and others) are available as environment variables
+load_env_file()
 
 def load_jsonl(path):
     with open(path, "r") as f:
@@ -100,22 +95,27 @@ class Question():
             judge_prompts: dict,
             temperature: float = 1,
             system: str = None,
-            judge: str = "gemini-2.0-flash",
-            judge_eval_type: str = "0_10",
+            judge: str = None,
+            judge_eval_type: str = "0_100",
             **ignored_extra_args
         ):
         self.id = id
         self.paraphrases = paraphrases
         self.temperature = temperature
         self.system = system
-        self.judges = {
-            metric: GeminiJudge(
-                judge,
-                prompt,
-                eval_type=judge_eval_type if metric != "coherence" else "0_10"
+
+        if judge is None:
+            raise ValueError("You must specify a local judge model name (Hugging Face ID) via `judge`.")
+
+        # Dùng LocalJudge (model HuggingFace) cho tất cả metric
+        self.judges = {}
+        for metric, prompt in judge_prompts.items():
+            eval_type = judge_eval_type if metric != "coherence" else "0_100"
+            self.judges[metric] = LocalJudge(
+                model_name=judge,
+                prompt_template=prompt,
+                eval_type=eval_type,
             )
-            for metric, prompt in judge_prompts.items()
-        }
 
     def get_input(self, n_per_question):
         paraphrases = random.choices(self.paraphrases, k=n_per_question)
@@ -183,27 +183,15 @@ class Question():
                     all_judge_tasks.append((judge, question_text, answer))
                     all_judge_indices.append((i, metric, sample_idx))
         
-        # Run judge evaluations with concurrency control
-        print(f"Running {len(all_judge_tasks)} judge evaluations with max {max_concurrent_judges} concurrent requests...")
+        # Run judge evaluations (đồng bộ, dùng LocalJudge)
+        print(f"Running {len(all_judge_tasks)} local judge evaluations...")
         all_results = [None] * len(all_judge_tasks)  # Pre-allocate results array
-        
-        # Create a semaphore to limit concurrency
-        semaphore = asyncio.Semaphore(max_concurrent_judges)
-        
-        async def run_with_semaphore(task_idx, judge, question_text, answer):
-            async with semaphore:
-                result = await judge(question=question_text, answer=answer)
-                return task_idx, result
-        
-        # Create all tasks with semaphore control
-        tasks = [run_with_semaphore(task_idx, judge, question_text, answer) 
-                for task_idx, (judge, question_text, answer) in enumerate(all_judge_tasks)]
-        
-        # Process tasks in batches with progress bar
-        with tqdm(total=len(tasks), desc="Judge evaluations") as pbar:
-            for task in asyncio.as_completed(tasks):
-                task_idx, result = await task
-                all_results[task_idx] = result  # Store result in correct position
+
+        with tqdm(total=len(all_judge_tasks), desc="Judge evaluations") as pbar:
+            for task_idx, (judge, question_text, answer) in enumerate(all_judge_tasks):
+                # LocalJudge là synchronous
+                result = judge(question=question_text, answer=answer)
+                all_results[task_idx] = result
                 pbar.update(1)
         
         # Distribute results back to the appropriate dataframes
@@ -217,7 +205,7 @@ class Question():
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
-def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.0-flash", eval_type="0_10", version="extract"):
+def load_persona_questions(trait, temperature=1, persona_instructions_type=None, assistant_name=None, judge_model="gemini-2.0-flash", eval_type="0_100", version="extract"):
     trait_data = json.load(open(f"data_generation/trait_data_{version}/{trait}.json", "r"))
     judge_prompts = {}
     prompt_template = trait_data["eval_prompt"]
