@@ -2,21 +2,16 @@ import math
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class LocalJudge:
-    """
-    Local Judge dùng HuggingFace model thay cho OpenAI API.
-    Chỉ hỗ trợ eval_type="0_100".
-    """
     def __init__(
         self,
         model_path: str | None = None,
         prompt_template: str | None = None,
-        device: str = "cuda",
         top_k: int = 50,
         **kwargs,
     ):
-        # eval_persona.py still passes model_name/eval_type; keep them for compatibility.
         if model_path is None:
             model_path = kwargs.pop("model_name", None)
         if model_path is None:
@@ -25,15 +20,16 @@ class LocalJudge:
             raise ValueError("LocalJudge requires a prompt_template.")
 
         self.model_path = model_path
-        self.device = device
         self.top_k = top_k
         self.prompt_template = prompt_template
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype=torch.float16,
-            device_map=device
+            torch_dtype=torch.bfloat16,
+            trust_remote_code=True,
+            device_map="auto",
+            attn_implementation="eager"
         )
 
         if self.tokenizer.pad_token is None:
@@ -49,42 +45,32 @@ class LocalJudge:
         return score
 
     def logprob_probs(self, prompt: str) -> dict:
-        """
-        Lấy top-k token probabilities cho token tiếp theo.
-        Giống logic của OpenAI logprobs.
-        """
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
 
         with torch.no_grad():
             out = self.model(**inputs)
 
-        logits = out.logits[:, -1, :]  # token cuối
+        logits = out.logits[:, -1, :]
         logprobs = torch.nn.functional.log_softmax(logits, dim=-1)
-
         topk_vals, topk_idx = torch.topk(logprobs, self.top_k, dim=-1)
-
         result = {}
         for val, idx in zip(topk_vals[0], topk_idx[0]):
-            token_str = self.tokenizer.decode(idx.item()).strip()
+            token_str = self.tokenizer.decode([idx.item()], clean_up_tokenization_spaces=False)
+            token_str = token_str.strip()
             result[token_str] = float(math.exp(val.item()))
- 
         return result
 
-    def aggregate_0_100_score(self, score_dict: dict) -> float:
+    def aggregate_0_100_score(self, scores: dict) -> float:
         total = 0
         sum_ = 0
-
-        for token, prob in score_dict.items():
+        for token, prob in scores.items():
             try:
                 int_token = int(token)
             except ValueError:
                 continue
-
             if 0 <= int_token <= 100:
                 sum_ += int_token * prob
                 total += prob
-
         if total == 0:
             return None
-
         return sum_ / total

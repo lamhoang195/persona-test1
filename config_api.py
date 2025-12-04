@@ -25,8 +25,6 @@ class Config:
         load_env_file()
         self._hf_token = None
         self._wandb_project = None
-        self._vertex_project_id = None
-        self._vertex_location = None
     
     @property
     def hf_token(self) -> str:
@@ -47,37 +45,14 @@ class Config:
             self._wandb_project = os.environ.get('WANDB_PROJECT', 'persona-vectors')
         return self._wandb_project
     
-    @property
-    def vertex_project_id(self) -> str:
-        """Get Vertex AI Project ID from environment variables."""
-        if self._vertex_project_id is None:
-            self._vertex_project_id = os.environ.get('VERTEX_PROJECT_ID')
-            if not self._vertex_project_id:
-                raise ValueError("VERTEX_PROJECT_ID not found...")
-        return self._vertex_project_id
-
-    @property
-    def vertex_location(self) -> str:
-        """Get Vertex AI Location (Region) from environment variables."""
-        if self._vertex_location is None:
-            self._vertex_location = os.environ.get('VERTEX_LOCATION')
-            if not self._vertex_location:
-                raise ValueError("VERTEX_LOCATION not found...")
-        return self._vertex_location
-    
     def setup_environment(self) -> None:
         os.environ['HF_TOKEN'] = self.hf_token
         os.environ['WANDB_PROJECT'] = self.wandb_project
-        os.environ['VERTEX_PROJECT_ID'] = self.vertex_project_id
-        os.environ['VERTEX_LOCATION'] = self.vertex_location
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "gen-lang-client-0894399630-7253c83f4441.json")
     
     def validate_credentials(self) -> bool:
         try:
             _ = self.wandb_project
-            _ = self.hf_token
-            _ = self.vertex_project_id 
-            _ = self.vertex_location   
+            _ = self.hf_token  
             return True
         except ValueError as e:
             warnings.warn(f"Credential validation failed: {e}")

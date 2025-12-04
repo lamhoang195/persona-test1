@@ -21,11 +21,9 @@ from config_api import load_env_file
 logging.getLogger("httpx").setLevel(logging.ERROR)
 load_env_file()
 
-
 def load_jsonl(path):
     with open(path, "r") as f:
         return [json.loads(line) for line in f.readlines() if line.strip()]
-
 
 def sample_steering(
     model, tokenizer, conversations,
@@ -97,8 +95,7 @@ class Question():
         judge_prompts: dict,
         temperature: float = 1,
         system: str = None,
-        judge: str = "mistralai/Mistral-7B-Instruct-v0.3",
-        judge_eval_type: str = "0_100",
+        judge_model: str = "meta-llama/Llama-3.1-8B",
         **ignored_extra_args
     ):
         self.id = id
@@ -109,9 +106,9 @@ class Question():
         self.judges = {}
         for metric, template in judge_prompts.items():
             self.judges[metric] = LocalJudge(
-                model_name=judge,
+                model_name=judge_model,
                 prompt_template=template,
-                eval_type=judge_eval_type,
+                top_k=50
             )
 
     def get_input(self, n_per_question):
@@ -209,8 +206,7 @@ def load_persona_questions(
     trait, temperature=1,
     persona_instructions_type=None,
     assistant_name=None,
-    judge_model="mistralai/Mistral-7B-Instruct-v0.3",
-    eval_type="0_100",
+    judge_model="meta-llama/Llama-3.1-8B",
     version="extract"
 ):
     trait_data = json.load(
@@ -219,7 +215,7 @@ def load_persona_questions(
 
     judge_prompts = {
         trait: trait_data["eval_prompt"],
-        "coherence": Prompts[f"coherence_{eval_type}"]
+        "coherence": Prompts[f"coherence_0_100"]
     }
 
     raw_questions = trait_data["questions"]
@@ -232,10 +228,9 @@ def load_persona_questions(
                     paraphrases=[q_text],
                     id=f"{trait}_{i}",
                     judge_prompts=judge_prompts,
-                    judge=judge_model,
+                    judge_model=judge_model,
                     temperature=temperature,
-                    system=None,
-                    judge_eval_type=eval_type
+                    system=None
                 )
             )
         else:
@@ -255,10 +250,9 @@ def load_persona_questions(
                         paraphrases=[q_text],
                         id=f"{trait}_{i}_{persona_instructions_type}_{k}",
                         judge_prompts=judge_prompts,
-                        judge=judge_model,
+                        judge_model=judge_model,
                         temperature=temperature,
-                        system=system,
-                        judge_eval_type=eval_type
+                        system=system
                     )
                 )
 
@@ -271,7 +265,7 @@ def main(
     max_tokens=1000, n_per_question=2,
     batch_process=True, max_concurrent_judges=5,
     persona_instruction_type=None, assistant_name=None,
-    judge_model="mistralai/Mistral-7B-Instruct-v0.3",
+    judge_model="meta-llama/Llama-3.1-8B",
     version="extract", overwrite=False
 ):
     if os.path.exists(output_path) and not overwrite:
