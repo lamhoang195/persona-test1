@@ -27,9 +27,6 @@ def load_jsonl(path):
         return [json.loads(line) for line in f.readlines() if line.strip()]
 
 
-# ========================================================================
-# Generate model response
-# ========================================================================
 def sample_steering(
     model, tokenizer, conversations,
     vector, layer, coef,
@@ -92,10 +89,6 @@ def sample_steering(
 
     return prompts, outputs
 
-
-# ========================================================================
-# Question wrapper
-# ========================================================================
 class Question():
     def __init__(
         self,
@@ -135,9 +128,6 @@ class Question():
             ]
         return paraphrases, conversations
 
-    # ===============================================================
-    # Eval batched
-    # ===============================================================
     @staticmethod
     async def eval_batched(
         questions, model, tokenizer, coef,
