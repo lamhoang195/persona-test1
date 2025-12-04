@@ -25,8 +25,15 @@ class LocalJudge:
         if model_name not in self._model_cache:
             print(f"Loading model {model_name} (first time)...")
             
-            # Tokenizer luôn dùng CPU
-            tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+            # Tokenizer luôn dùng CPU, fallback về slow nếu fast không có
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+            except (ValueError, OSError) as e:
+                if "sentencepiece" in str(e).lower() or "Cannot instantiate" in str(e):
+                    print(f"Warning: Fast tokenizer not available, using slow tokenizer for {model_name}")
+                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                else:
+                    raise
             
             # Load config, xử lý lỗi rope_scaling nếu có
             try:
@@ -71,7 +78,7 @@ class LocalJudge:
             model = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 config=config,
-                torch_dtype=torch.float16,
+                dtype=torch.float16,
                 device_map="auto",
             )
             model.eval()
