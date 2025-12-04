@@ -40,7 +40,7 @@ class ModelUtils(Model):
             print(f"[INFO] Loading base or full fine-tuned model from: {latest_ckpt}")
             self.model = AutoModelForCausalLM.from_pretrained(
                 latest_ckpt,
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 device_map=device,
                 trust_remote_code=True,
                 attn_implementation="eager"

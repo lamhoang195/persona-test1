@@ -28,10 +28,20 @@ class LocalJudge:
             # Tokenizer luôn dùng CPU, fallback về slow nếu fast không có
             try:
                 tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-            except (ValueError, OSError) as e:
-                if "sentencepiece" in str(e).lower() or "Cannot instantiate" in str(e):
-                    print(f"Warning: Fast tokenizer not available, using slow tokenizer for {model_name}")
-                    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+            except (ValueError, OSError, ImportError) as e:
+                error_msg = str(e).lower()
+                if "sentencepiece" in error_msg or "Cannot instantiate" in str(e) or "LlamaTokenizer requires" in str(e):
+                    print(f"Warning: Fast tokenizer not available, trying slow tokenizer for {model_name}")
+                    try:
+                        tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=False)
+                    except ImportError as import_err:
+                        if "sentencepiece" in str(import_err).lower():
+                            raise ImportError(
+                                f"LlamaTokenizer requires the SentencePiece library. "
+                                f"Please install it with: pip install sentencepiece\n"
+                                f"Original error: {import_err}"
+                            ) from import_err
+                        raise
                 else:
                     raise
             

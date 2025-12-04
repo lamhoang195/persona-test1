@@ -37,6 +37,18 @@ import pandas as pd
 import os
 
 def get_persona_effective(pos_path, neg_path, trait, threshold=50):
+    if not os.path.exists(pos_path):
+        raise FileNotFoundError(
+            f"File not found: {pos_path}\n"
+            f"Please ensure the evaluation has been run first to generate this CSV file. "
+            f"The file should be created by running eval/eval_persona.py."
+        )
+    if not os.path.exists(neg_path):
+        raise FileNotFoundError(
+            f"File not found: {neg_path}\n"
+            f"Please ensure the evaluation has been run first to generate this CSV file. "
+            f"The file should be created by running eval/eval_persona.py."
+        )
     persona_pos = pd.read_csv(pos_path)
     persona_neg = pd.read_csv(neg_path)
     mask = (persona_pos[trait] >=threshold) & (persona_neg[trait] < 100-threshold) & (persona_pos["coherence"] >= 50) & (persona_neg["coherence"] >= 50)
