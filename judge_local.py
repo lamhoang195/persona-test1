@@ -3,6 +3,10 @@ import re
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
 class LocalJudge:
+    # Class-level cache để chia sẻ model/tokenizer giữa các instances
+    _model_cache = {}
+    _tokenizer_cache = {}
+    
     def __init__(
         self,
         model_name: str,
@@ -17,22 +21,68 @@ class LocalJudge:
         self.prompt_template = prompt_template
         self.top_k = top_k
 
-        # Tokenizer luôn dùng CPU
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-
-        # Load config
-        config = AutoConfig.from_pretrained(model_name)
-
-        # Multi-GPU auto split
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            config=config,
-            torch_dtype=torch.float16,
-            device_map="auto",
-        )
-        self.model.eval()
-
-        print("Device map:", self.model.hf_device_map)
+        # Dùng cache để tránh load model nhiều lần
+        if model_name not in self._model_cache:
+            print(f"Loading model {model_name} (first time)...")
+            
+            # Tokenizer luôn dùng CPU
+            tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+            
+            # Load config, xử lý lỗi rope_scaling nếu có
+            try:
+                config = AutoConfig.from_pretrained(model_name)
+            except ValueError as e:
+                if "rope_scaling" in str(e):
+                    # Fix rope_scaling format bằng cách load config_dict và sửa
+                    import json
+                    from pathlib import Path
+                    from huggingface_hub import hf_hub_download
+                    
+                    try:
+                        config_path = hf_hub_download(
+                            repo_id=model_name,
+                            filename="config.json"
+                        )
+                    except Exception:
+                        config_path = Path(model_name) / "config.json"
+                    
+                    with open(config_path, 'r') as f:
+                        config_dict = json.load(f)
+                    
+                    # Fix rope_scaling format
+                    if "rope_scaling" in config_dict and isinstance(config_dict["rope_scaling"], dict):
+                        rs = config_dict["rope_scaling"]
+                        factor = rs.get("factor", 1.0)
+                        rope_type = rs.get("rope_type", "linear")
+                        
+                        # Map rope_type to transformers format
+                        if "llama3" in str(rope_type).lower():
+                            type_str = "llama3"
+                        else:
+                            type_str = "linear"
+                        
+                        config_dict["rope_scaling"] = {"type": type_str, "factor": float(factor)}
+                    
+                    config = AutoConfig.from_dict(config_dict)
+                else:
+                    raise
+            
+            # Multi-GPU auto split
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                config=config,
+                torch_dtype=torch.float16,
+                device_map="auto",
+            )
+            model.eval()
+            
+            self._model_cache[model_name] = model
+            self._tokenizer_cache[model_name] = tokenizer
+            
+            print(f"✓ Model {model_name} loaded (cached for reuse). Device map:", model.hf_device_map)
+        
+        self.model = self._model_cache[model_name]
+        self.tokenizer = self._tokenizer_cache[model_name]
 
     def judge(self, **kwargs) -> float:
         prompt_text = self.prompt_template.format(**kwargs)
