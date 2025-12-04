@@ -97,7 +97,7 @@ class Question():
         judge_prompts: dict,
         temperature: float = 1,
         system: str = None,
-        judge: str = None,
+        judge: str = "meta-llama/Llama-3.1-8B-Instruct",
         judge_eval_type: str = "0_100",
         **ignored_extra_args
     ):
@@ -106,10 +106,6 @@ class Question():
         self.temperature = temperature
         self.system = system
 
-        if judge is None:
-            raise ValueError("You must specify a judge HF model.")
-
-        # LocalJudge for each metric
         self.judges = {}
         for metric, template in judge_prompts.items():
             self.judges[metric] = LocalJudge(
@@ -205,10 +201,6 @@ class Question():
 
         return question_dfs
 
-
-# ========================================================================
-# Load persona questions
-# ========================================================================
 def a_or_an(word):
     return "an" if word[0].lower() in "aeiou" else "a"
 
@@ -272,10 +264,6 @@ def load_persona_questions(
 
     return questions
 
-
-# ========================================================================
-# Main
-# ========================================================================
 def main(
     model, trait, output_path, coef=0,
     vector_path=None, layer=None,
@@ -334,9 +322,6 @@ def main(
 
     for t in [trait, "coherence"]:
         print(f"{t}: {outputs[t].mean():.2f} +- {outputs[t].std():.2f}")
-
-
-# ========================================================================
 
 if __name__ == "__main__":
     fire.Fire(main)

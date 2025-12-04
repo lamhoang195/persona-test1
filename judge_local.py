@@ -19,6 +19,10 @@ class LocalJudge:
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         config = AutoConfig.from_pretrained(model_name)
+        rope_scaling = getattr(config, "rope_scaling", None)
+        if isinstance(rope_scaling, dict) and "type" not in rope_scaling:
+            factor = rope_scaling.get("factor") or rope_scaling.get("scaling_factor") or 1.0
+            config.rope_scaling = {"type": "linear", "factor": factor}
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             config=config,
