@@ -16,19 +16,23 @@ class LocalJudge:
         self.eval_type = eval_type
         self.prompt_template = prompt_template
         self.top_k = top_k
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Tokenizer luôn dùng CPU
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+
+        # Load config
         config = AutoConfig.from_pretrained(model_name)
-        rope_scaling = getattr(config, "rope_scaling", None)
-        if isinstance(rope_scaling, dict) and "type" not in rope_scaling:
-            factor = rope_scaling.get("factor") or rope_scaling.get("scaling_factor") or 1.0
-            config.rope_scaling = {"type": "linear", "factor": factor}
+
+        # Multi-GPU auto split
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             config=config,
-            torch_dtype=torch.float16 if "cuda" in self.device else torch.float32
-        ).to(self.device)
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
         self.model.eval()
+
+        print("Device map:", self.model.hf_device_map)
 
     def judge(self, **kwargs) -> float:
         prompt_text = self.prompt_template.format(**kwargs)
@@ -36,20 +40,25 @@ class LocalJudge:
         return self._aggregate_0_100_score(response_probs)
 
     def logprob_probs(self, prompt: str) -> dict:
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        # ❗Không .to(device) khi dùng device_map="auto"
+
         with torch.no_grad():
             out = self.model(**inputs)
+
         logits = out.logits[:, -1, :]
         logprobs = torch.log_softmax(logits, dim=-1)
         vals, idxs = torch.topk(logprobs, k=self.top_k, dim=-1)
+
         result = {}
         for logprob, idx in zip(vals[0], idxs[0]):
             decoded = self.tokenizer.decode([idx.item()])
             prob = torch.exp(logprob).item()
-            number_match = re.findall(r"-?\d+", decoded)
-            if len(number_match) == 1:
-                token = number_match[0]
-                result[token] = prob
+
+            match = re.findall(r"-?\d+", decoded)
+            if len(match) == 1:
+                result[match[0]] = prob
+
         return result
 
     def _aggregate_0_100_score(self, score: dict) -> float:
@@ -60,10 +69,9 @@ class LocalJudge:
                 int_key = int(key)
             except ValueError:
                 continue
-            if int_key < 0 or int_key > 100:
-                continue
-            sum_ += int_key * val
-            total += val
+            if 0 <= int_key <= 100:
+                sum_ += int_key * val
+                total += val
 
         if total == 0:
             return None
