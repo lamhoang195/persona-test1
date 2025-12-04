@@ -97,7 +97,7 @@ class Question():
         judge_prompts: dict,
         temperature: float = 1,
         system: str = None,
-        judge: str = "meta-llama/Llama-3.1-8B-Instruct",
+        judge: str = "mistralai/Mistral-7B-Instruct-v0.3",
         judge_eval_type: str = "0_100",
         **ignored_extra_args
     ):
@@ -209,7 +209,7 @@ def load_persona_questions(
     trait, temperature=1,
     persona_instructions_type=None,
     assistant_name=None,
-    judge_model="gemini-2.0-flash",
+    judge_model="mistralai/Mistral-7B-Instruct-v0.3",
     eval_type="0_100",
     version="extract"
 ):
@@ -271,7 +271,7 @@ def main(
     max_tokens=1000, n_per_question=2,
     batch_process=True, max_concurrent_judges=5,
     persona_instruction_type=None, assistant_name=None,
-    judge_model="gemini-2.0-flash",
+    judge_model="mistralai/Mistral-7B-Instruct-v0.3",
     version="extract", overwrite=False
 ):
     if os.path.exists(output_path) and not overwrite:
