@@ -23,7 +23,7 @@ class LocalJudge:
         self.top_k = top_k
         self.prompt_template = prompt_template
         
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
         self.model = AutoModelForCausalLM.from_pretrained(
             model_path,
             torch_dtype=torch.bfloat16,
