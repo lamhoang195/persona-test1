@@ -7,19 +7,12 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 class LocalJudge:
     def __init__(
         self,
-        judge_model: str | None = None,
-        prompt_template: str | None = None,
+        judge_model: str,
+        prompt_template: str,
         top_k: int = 50,
         verbose: bool = False,
         **kwargs,
     ):
-        if judge_model is None:
-            judge_model = kwargs.pop("judge_name", None)
-        if judge_model is None:
-            raise ValueError("LocalJudge requires judge_model or judge_name.")
-        if prompt_template is None:
-            raise ValueError("LocalJudge requires a prompt_template.")
-
         self.judge_model = judge_model
         self.top_k = top_k
         self.prompt_template = prompt_template

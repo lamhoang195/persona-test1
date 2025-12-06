@@ -10,6 +10,7 @@ import pandas as pd
 from tqdm import tqdm
 from tqdm import trange
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from judge_local import LocalJudge
 from activation_steer import ActivationSteerer
@@ -35,7 +36,6 @@ def sample_steering(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
-
     prompts = []
     for messages in conversations:
         prompts.append(
@@ -43,7 +43,6 @@ def sample_steering(
                 messages, tokenize=False, add_generation_prompt=True
             )
         )
-
     outputs = []
     for i in trange(0, len(prompts), bs, desc="Generating"):
         batch = prompts[i:i+bs]
@@ -55,7 +54,6 @@ def sample_steering(
             and vector is not None
             and layer is not None
         )
-
         context = (
             ActivationSteerer(
                 model,
@@ -66,7 +64,6 @@ def sample_steering(
             )
             if use_steering else torch.no_grad()
         )
-
         with context:
             output = model.generate(
                 **tokenized_batch,
@@ -84,7 +81,6 @@ def sample_steering(
             for o in output
         ]
         outputs.extend(decoded)
-
     return prompts, outputs
 
 class Question():
@@ -95,7 +91,7 @@ class Question():
         judge_prompts: dict,
         temperature: float = 1,
         system: str = None,
-        judge_model: str = "Qwen/Qwen2-1.5B-Instruct",
+        judge_model: str = "meta-llama/Llama-3.1-8B-Instruct",
         **ignored_extra_args
     ):
         self.id = id
@@ -106,7 +102,7 @@ class Question():
         self.judges = {}
         for metric, template in judge_prompts.items():
             self.judges[metric] = LocalJudge(
-                judge_name=judge_model,
+                judge_model=judge_model,
                 prompt_template=template,
                 top_k=50
             )
@@ -122,7 +118,7 @@ class Question():
         return paraphrases, conversations
 
     @staticmethod
-    async def eval_batched(
+    def eval_batched(
         questions, model, tokenizer, coef,
         vector=None, layer=None,
         n_per_question=2,
@@ -130,18 +126,16 @@ class Question():
         max_tokens=1000,
         steering_type="response"
     ):
-        # Collect all data
         all_paraphrases = []
         all_conversations = []
         question_indices = []
+        for i, question in enumerate(questions):
+            paraphrases, conversations = question.get_input(n_per_question)
+            all_paraphrases.extend(paraphrases)
+            all_conversations.extend(conversations)
+            question_indices.extend([i] * len(paraphrases))
 
-        for i, q in enumerate(questions):
-            paras, convs = q.get_input(n_per_question)
-            all_paraphrases.extend(paras)
-            all_conversations.extend(convs)
-            question_indices.extend([i] * len(paras))
-
-        print(f"Generating {len(all_paraphrases)} responses...")
+        print(f"Generating {len(all_paraphrases)} responses in a single batch...")
 
         prompts, answers = sample_steering(
             model, tokenizer, all_conversations,
@@ -151,49 +145,63 @@ class Question():
             steering_type=steering_type
         )
 
-        # Prepare containers
         question_dfs = []
-        all_tasks = []
-        all_indices = []
+        all_judge_tasks = []
+        all_judge_indices = []
 
-        # Build judge tasks
-        for qi, question in enumerate(questions):
-            indices = [j for j, idx in enumerate(question_indices) if idx == qi]
-            q_paras = [all_paraphrases[j] for j in indices]
+        for i, question in enumerate(questions):
+            indices = [j for j, idx in enumerate(question_indices) if idx == i]
+            q_paraphrases = [all_paraphrases[j] for j in indices]
             q_prompts = [prompts[j] for j in indices]
             q_answers = [answers[j] for j in indices]
 
             df = pd.DataFrame([
                 dict(
-                    question=q_text,
-                    prompt=pr,
-                    answer=ans,
+                    question=question_text,
+                    prompt=prompt,
+                    answer=answer,
                     question_id=question.id
                 )
-                for q_text, ans, pr in zip(q_paras, q_answers, q_prompts)
+                for question_text, answer, prompt in zip(q_paraphrases, q_answers, q_prompts)
             ])
             question_dfs.append(df)
 
-            # Create judge tasks
             for metric, judge in question.judges.items():
-                for sample_idx, (q_text, ans) in enumerate(zip(q_paras, q_answers)):
-                    all_tasks.append((judge, q_text, ans))
-                    all_indices.append((qi, metric, sample_idx))
+                for sample_idx, (question_text, answer) in enumerate(zip(q_paraphrases, q_answers)):
+                    all_judge_tasks.append((judge, question_text, answer))
+                    all_judge_indices.append((i, metric, sample_idx))
 
-        print(f"Running {len(all_tasks)} judge evaluations...")
+        print(f"Running {len(all_judge_tasks)} judge evaluation with max {max_concurrent_judges} concurrent judges...")
 
         # Sync judge loop
-        all_results = [None] * len(all_tasks)
-        with tqdm(total=len(all_tasks), desc="Judge evaluations") as pbar:
-            for idx, (judge, q_text, ans) in enumerate(all_tasks):
-                # ---- FIX: LocalJudge returns score directly ----
-                result = judge(question=q_text, answer=ans)
-                all_results[idx] = result
-                pbar.update(1)
+        all_results = [None] * len(all_judge_tasks)
+        def run_judge(task_idx, judge, q_text, ans):
+            """Helper function to run judge and return index + result"""
+            try:
+                score = judge(question=q_text, answer=ans)
+                return task_idx, score
+            except Exception as e:
+                print(f"Judge error at task {task_idx}: {e}")
+                return task_idx, None
+        
+        with ThreadPoolExecutor(max_workers=max_concurrent_judges) as executor:
+            # Submit all tasks
+            futures = {
+                executor.submit(run_judge, idx, judge, q_text, ans): idx
+                for idx, (judge, q_text, ans) in enumerate(all_judge_tasks)
+            }
+            
+            # Process completed tasks with progress bar
+            with tqdm(total=len(futures), desc="Judge evaluations") as pbar:
+                for future in as_completed(futures):
+                    task_idx, score = future.result()
+                    all_results[task_idx] = score
+                    pbar.update(1)
 
-        # Put results back
+        # Put results back into dataframes
+        print("Processing judge results...")
         for idx, score in enumerate(all_results):
-            qi, metric, si = all_indices[idx]
+            qi, metric, si = all_judge_indices[idx]
             question_dfs[qi].loc[si, metric] = score
 
         return question_dfs
@@ -206,56 +214,37 @@ def load_persona_questions(
     trait, temperature=1,
     persona_instructions_type=None,
     assistant_name=None,
-    judge_model="Qwen/Qwen2-1.5B-Instruct",
+    judge_model="meta-llama/Llama-3.1-8B-Instruct",
     version="extract"
 ):
     trait_data = json.load(
         open(f"data_generation/trait_data_{version}/{trait}.json", "r")
     )
-
     judge_prompts = {
         trait: trait_data["eval_prompt"],
         "coherence": Prompts[f"coherence_0_100"]
     }
-
     raw_questions = trait_data["questions"]
     questions = []
-
-    for i, q_text in enumerate(raw_questions):
-        if persona_instructions_type is None:
+    for i, question in enumerate(raw_questions):
+        persona_instructions = [
+            x[persona_instructions_type]
+            for x in trait_data["instruction"]
+        ]
+        for k, instruction in enumerate(persona_instructions):
+            if assistant_name is None:
+                assistant_name = trait if persona_instructions_type == "pos" else "helpful"
+            system = f"You are {a_or_an(assistant_name)} {assistant_name} assistant. {instruction}"
             questions.append(
                 Question(
-                    paraphrases=[q_text],
-                    id=f"{trait}_{i}",
+                    paraphrases=[question],
+                    id=f"{trait}_{i}_{persona_instructions_type}_{k}",
                     judge_prompts=judge_prompts,
                     judge_model=judge_model,
                     temperature=temperature,
-                    system=None
+                    system=system
                 )
             )
-        else:
-            persona_instr = [
-                x[persona_instructions_type]
-                for x in trait_data["instruction"]
-            ]
-
-            for k, instr in enumerate(persona_instr):
-                if assistant_name is None:
-                    assistant_name = trait if persona_instructions_type == "pos" else "helpful"
-
-                system = f"You are {a_or_an(assistant_name)} {assistant_name} assistant. {instr}"
-
-                questions.append(
-                    Question(
-                        paraphrases=[q_text],
-                        id=f"{trait}_{i}_{persona_instructions_type}_{k}",
-                        judge_prompts=judge_prompts,
-                        judge_model=judge_model,
-                        temperature=temperature,
-                        system=system
-                    )
-                )
-
     return questions
 
 def main(
@@ -265,7 +254,7 @@ def main(
     max_tokens=1000, n_per_question=2,
     batch_process=True, max_concurrent_judges=5,
     persona_instruction_type=None, assistant_name=None,
-    judge_model="Qwen/Qwen2-1.5B-Instruct",
+    judge_model="meta-llama/Llama-3.1-8B-Instruct",
     version="extract", overwrite=False
 ):
     if os.path.exists(output_path) and not overwrite:
@@ -298,13 +287,11 @@ def main(
     )
 
     if batch_process:
-        outputs_list = asyncio.run(
-            Question.eval_batched(
-                questions, model, tokenizer, coef,
-                vector, layer, n_per_question,
-                max_concurrent_judges, max_tokens,
-                steering_type=steering_type
-            )
+        outputs_list = Question.eval_batched(
+            questions, model, tokenizer, coef,
+            vector, layer, n_per_question,
+            max_concurrent_judges, max_tokens,
+            steering_type=steering_type
         )
         outputs = pd.concat(outputs_list, ignore_index=True)
 
