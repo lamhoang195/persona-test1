@@ -106,7 +106,7 @@ class Question():
         self.judges = {}
         for metric, template in judge_prompts.items():
             self.judges[metric] = LocalJudge(
-                model_name=judge_model,
+                judge_name=judge_model,
                 prompt_template=template,
                 top_k=50
             )
