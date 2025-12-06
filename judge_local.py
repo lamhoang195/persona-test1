@@ -1,6 +1,8 @@
 import math
 import json
 import os
+import shutil
+import tempfile
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from huggingface_hub import hf_hub_download, snapshot_download
@@ -57,8 +59,35 @@ def _load_config_with_fix(model_path):
     if config_file and os.path.exists(config_file):
         with open(config_file, 'r', encoding='utf-8') as f:
             config_dict = json.load(f)
-        config_dict = _fix_rope_scaling_config(config_dict)
-        return AutoConfig.from_dict(config_dict, trust_remote_code=True)
+        
+        # Check if we need to fix rope_scaling
+        needs_fix = False
+        if 'rope_scaling' in config_dict and config_dict['rope_scaling'] is not None:
+            rope_scaling = config_dict['rope_scaling']
+            if isinstance(rope_scaling, dict) and ('rope_type' in rope_scaling or 'type' not in rope_scaling):
+                needs_fix = True
+        
+        if needs_fix:
+            config_dict = _fix_rope_scaling_config(config_dict)
+            # Write fixed config to a temporary directory and load from there
+            # Use temp directory context manager to ensure cleanup
+            tmp_dir = tempfile.mkdtemp()
+            try:
+                temp_config_path = os.path.join(tmp_dir, 'config.json')
+                with open(temp_config_path, 'w', encoding='utf-8') as tmp_file:
+                    json.dump(config_dict, tmp_file, indent=2)
+                # Load config from temp directory
+                config = AutoConfig.from_pretrained(tmp_dir, trust_remote_code=True)
+            finally:
+                # Clean up temp directory
+                try:
+                    shutil.rmtree(tmp_dir)
+                except Exception:
+                    pass
+            return config
+        else:
+            # No fix needed, load normally
+            return AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     else:
         raise FileNotFoundError(
             f"Could not find config.json for model {model_path}. "
