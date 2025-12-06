@@ -91,8 +91,7 @@ class Question():
         judge_prompts: dict,
         temperature: float = 1,
         system: str = None,
-        judge_model: str = "meta-llama/Llama-3.1-8B-Instruct",
-        **ignored_extra_args
+        judge_model: str = "Qwen/Qwen2-1.5B-Instruct",
     ):
         self.id = id
         self.paraphrases = paraphrases
@@ -214,7 +213,7 @@ def load_persona_questions(
     trait, temperature=1,
     persona_instructions_type=None,
     assistant_name=None,
-    judge_model="meta-llama/Llama-3.1-8B-Instruct",
+    judge_model="Qwen/Qwen2-1.5B-Instruct",
     version="extract"
 ):
     trait_data = json.load(
@@ -254,7 +253,7 @@ def main(
     max_tokens=1000, n_per_question=2,
     batch_process=True, max_concurrent_judges=5,
     persona_instruction_type=None, assistant_name=None,
-    judge_model="meta-llama/Llama-3.1-8B-Instruct",
+    judge_model="Qwen/Qwen2-1.5B-Instruct",
     version="extract", overwrite=False
 ):
     if os.path.exists(output_path) and not overwrite:
