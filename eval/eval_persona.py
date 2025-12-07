@@ -88,23 +88,15 @@ class Question():
         self,
         id: str,
         paraphrases: list[str],
-        judge_prompts: dict,
+        judges: dict,
         temperature: float = 1,
-        system: str = None,
-        judge_model: str = "meta-llama/Llama-3.1-8B-Instruct",
+        system: str = None
     ):
         self.id = id
         self.paraphrases = paraphrases
         self.temperature = temperature
         self.system = system
-
-        self.judges = {}
-        for metric, template in judge_prompts.items():
-            self.judges[metric] = LocalJudge(
-                judge_model=judge_model,
-                prompt_template=template,
-                top_k=50
-            )
+        self.judges = judges
 
     def get_input(self, n_per_question):
         paraphrases = random.choices(self.paraphrases, k=n_per_question)
@@ -223,6 +215,13 @@ def load_persona_questions(
         trait: trait_data["eval_prompt"],
         "coherence": Prompts[f"coherence_0_100"]
     }
+    shared_judges = {}
+    for metric, template in judge_prompts.items():
+        shared_judges[metric] = LocalJudge(
+            judge_model=judge_model,
+            prompt_template=template,
+            top_k=50
+        )
     raw_questions = trait_data["questions"]
     questions = []
     for i, question in enumerate(raw_questions):
@@ -238,8 +237,7 @@ def load_persona_questions(
                 Question(
                     paraphrases=[question],
                     id=f"{trait}_{i}_{persona_instructions_type}_{k}",
-                    judge_prompts=judge_prompts,
-                    judge_model=judge_model,
+                    judges=shared_judges,
                     temperature=temperature,
                     system=system
                 )

@@ -60,7 +60,6 @@ class LocalJudge:
             }
             print(f"[Judge Model] Loaded and cached successfully")
         else:
-            print(f"[Judge Model] Using cached model: {judge_model}")
             if self.verbose:
                 print(f"Using cached model for {judge_model}...")
 
