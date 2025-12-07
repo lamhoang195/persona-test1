@@ -103,7 +103,7 @@ class Question():
             self.judges[metric] = LocalJudge(
                 judge_model=judge_model,
                 prompt_template=template,
-                top_k=20
+                top_k=50
             )
 
     def get_input(self, n_per_question):

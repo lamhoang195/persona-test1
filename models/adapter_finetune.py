@@ -59,7 +59,7 @@ def _load_tokenizer(path_or_id: str):
 def load_model(model_path: str, dtype=torch.bfloat16):
     if not os.path.exists(model_path):               # ---- Hub ----
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=dtype, device_map="cuda"
+            model_path, dtype=dtype, device_map="cuda", progress=True
         )
         tok = _load_tokenizer(model_path)
         return model, tok
