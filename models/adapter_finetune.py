@@ -56,10 +56,10 @@ def _load_tokenizer(path_or_id: str):
     token.padding_side = "left"
     return token
 
-def load_model(model_path: str, torch_dtype=torch.bfloat16):
+def load_model(model_path: str, dtype=torch.bfloat16):
     if not os.path.exists(model_path):               # ---- Hub ----
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch_dtype, device_map="auto"
+            model_path, dtype=dtype, device_map="auto"
         )
         tok = _load_tokenizer(model_path)
         return model, tok
@@ -67,16 +67,16 @@ def load_model(model_path: str, torch_dtype=torch.bfloat16):
     resolved = _pick_latest_checkpoint(model_path)
     print(f"loading {resolved}")
     if _is_lora(resolved):
-        model = _load_and_merge_lora(resolved, torch_dtype, "auto")
+        model = _load_and_merge_lora(resolved, dtype, "auto")
         tok = _load_tokenizer(model.config._name_or_path)
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, torch_dtype=torch_dtype, device_map="auto"
+            resolved, dtype=dtype, device_map="auto"
         )
         tok = _load_tokenizer(resolved)
     return model, tok
 
-def load_model_basic(model_path: str, torch_dtype=torch.bfloat16):
+def load_model_basic(model_path: str, dtype=torch.bfloat16):
     """
     Load model using transformers (not vLLM) but with same logic as load_vllm_model.
     Returns (model, tokenizer, lora_path) to maintain compatibility.
@@ -84,7 +84,7 @@ def load_model_basic(model_path: str, torch_dtype=torch.bfloat16):
     """
     if not os.path.exists(model_path): 
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, torch_dtype=torch_dtype, device_map="auto"
+            model_path, dtype=dtype, device_map="auto"
         )
         tok = _load_tokenizer(model_path)
         tok.pad_token = tok.eos_token
@@ -98,12 +98,12 @@ def load_model_basic(model_path: str, torch_dtype=torch.bfloat16):
 
     if is_lora:
         # Load LoRA adapter (merge it, so lora_path is returned but model is merged)
-        model = _load_and_merge_lora(resolved, torch_dtype, "auto")
+        model = _load_and_merge_lora(resolved, dtype, "auto")
         tok = _load_tokenizer(model.config._name_or_path)
         lora_path = resolved  # Return path for reference, but model is already merged
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, torch_dtype=torch_dtype, device_map="auto"
+            resolved, dtype=dtype, device_map="auto"
         )
         tok = _load_tokenizer(resolved)
         lora_path = None
