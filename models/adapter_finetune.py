@@ -83,6 +83,8 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
     This function avoids vLLM dependency and CUDA linking issues.
     """
     if not os.path.exists(model_path): 
+        print(f"[Target Model] Loading from HuggingFace Hub: {model_path}")
+        print(f"[Target Model] This may take a while...")
         model = AutoModelForCausalLM.from_pretrained(
             model_path, dtype=dtype, device_map="auto"
         )
@@ -90,10 +92,11 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
         tok.pad_token = tok.eos_token
         tok.pad_token_id = tok.eos_token_id
         tok.padding_side = "left"
+        print(f"[Target Model] Loaded successfully from Hub")
         return model, tok, None
 
     resolved = _pick_latest_checkpoint(model_path)
-    print(f"loading {resolved}")
+    print(f"[Target Model] Loading from local path: {resolved}")
     is_lora = _is_lora(resolved)
 
     if is_lora:
@@ -111,4 +114,5 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
     tok.pad_token = tok.eos_token
     tok.pad_token_id = tok.eos_token_id
     tok.padding_side = "left"
+    print(f"[Target Model] Loaded successfully from local")
     return model, tok, lora_path

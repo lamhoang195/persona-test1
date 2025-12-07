@@ -23,6 +23,8 @@ class LocalJudge:
 
         # Sử dụng cache để tránh load model nhiều lần
         if judge_model not in _judge_model_cache:
+            print(f"[Judge Model] Loading from: {judge_model}")
+            print(f"[Judge Model] This may take a while...")
             if self.verbose:
                 print(f"Loading tokenizer from {judge_model}...")
             
@@ -41,7 +43,7 @@ class LocalJudge:
             try:
                 model = AutoModelForCausalLM.from_pretrained(
                     judge_model,
-                    dtype=torch.bfloat16,  # Đổi từ torch_dtype sang dtype
+                    dtype=torch.bfloat16,
                     trust_remote_code=True,
                     device_map="auto",
                     attn_implementation="eager"
@@ -56,7 +58,9 @@ class LocalJudge:
                 'model': model,
                 'tokenizer': tokenizer
             }
+            print(f"[Judge Model] Loaded and cached successfully")
         else:
+            print(f"[Judge Model] Using cached model: {judge_model}")
             if self.verbose:
                 print(f"Using cached model for {judge_model}...")
 

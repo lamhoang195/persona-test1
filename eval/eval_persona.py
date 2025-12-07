@@ -268,14 +268,16 @@ def main(
 
     temperature = 0.0 if n_per_question == 1 else 1.0
 
-    # Load target model
+    print(f"Loading model from {model}...")
     if coef != 0:
         model, tokenizer = load_model(model)
         vector = torch.load(vector_path, weights_only=False)[layer]
     else:
         model, tokenizer, _ = load_model_basic(model)
         vector = None
+    print(f"Model loaded successfully")
 
+    print(f"Loading judge model from {judge_model}...")
     questions = load_persona_questions(
         trait,
         temperature=temperature,
@@ -284,6 +286,7 @@ def main(
         judge_model=judge_model,
         version=version
     )
+    print(f"Judge model loaded and questions prepared.\n")
 
     if batch_process:
         outputs_list = Question.eval_batched(
