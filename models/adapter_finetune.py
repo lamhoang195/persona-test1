@@ -59,7 +59,7 @@ def _load_tokenizer(path_or_id: str):
 def load_model(model_path: str, dtype=torch.bfloat16):
     if not os.path.exists(model_path):               # ---- Hub ----
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=dtype, device_map="auto"
+            model_path, dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(model_path)
         return model, tok
@@ -71,7 +71,7 @@ def load_model(model_path: str, dtype=torch.bfloat16):
         tok = _load_tokenizer(model.config._name_or_path)
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, dtype=dtype, device_map="auto"
+            resolved, dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(resolved)
     return model, tok
@@ -86,7 +86,7 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
         print(f"[Target Model] Loading from HuggingFace Hub: {model_path}")
         print(f"[Target Model] This may take a while...")
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=dtype, device_map="auto"
+            model_path, dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(model_path)
         tok.pad_token = tok.eos_token
@@ -101,12 +101,12 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
 
     if is_lora:
         # Load LoRA adapter (merge it, so lora_path is returned but model is merged)
-        model = _load_and_merge_lora(resolved, dtype, "auto")
+        model = _load_and_merge_lora(resolved, dtype, "cuda")
         tok = _load_tokenizer(model.config._name_or_path)
         lora_path = resolved  # Return path for reference, but model is already merged
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, dtype=dtype, device_map="auto"
+            resolved, dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(resolved)
         lora_path = None

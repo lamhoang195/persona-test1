@@ -45,7 +45,7 @@ class LocalJudge:
                     judge_model,
                     dtype=torch.bfloat16,
                     trust_remote_code=True,
-                    device_map="auto",
+                    device_map="cuda",
                     attn_implementation="eager"
                 )
             except Exception as e:
