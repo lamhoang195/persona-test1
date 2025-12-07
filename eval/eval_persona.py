@@ -29,7 +29,7 @@ def load_jsonl(path):
 def sample_steering(
     model, tokenizer, conversations,
     vector, layer, coef,
-    bs=5, top_p=1, max_tokens=1000, temperature=1,
+    bs=10, top_p=1, max_tokens=1000, temperature=1,
     min_tokens=1, steering_type="response"
 ):
     tokenizer.padding_side = "left"
@@ -121,7 +121,7 @@ class Question():
         questions, model, tokenizer, coef,
         vector=None, layer=None,
         n_per_question=10,
-        max_concurrent_judges=5,
+        max_concurrent_judges=10,
         max_tokens=1000,
         steering_type="response"
     ):
@@ -251,7 +251,7 @@ def main(
     vector_path=None, layer=None,
     steering_type="response",
     max_tokens=1000, n_per_question=10,
-    batch_process=True, max_concurrent_judges=5,
+    batch_process=True, max_concurrent_judges=10,
     persona_instruction_type=None, assistant_name=None,
     judge_model="meta-llama/Llama-3.1-8B-Instruct",
     version="extract", overwrite=False
