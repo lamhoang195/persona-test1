@@ -205,7 +205,7 @@ def load_persona_questions(
     trait, temperature=1,
     persona_instructions_type=None,
     assistant_name=None,
-    judge_model="meta-llama/Llama-3.1-8B-Instruct",
+    judge_model="/data2/cmdir/home/ioit107/gpt-oss-20b/gpt-oss-20b",
     version="extract"
 ):
     trait_data = json.load(
@@ -251,7 +251,7 @@ def main(
     max_tokens=1000, n_per_question=10,
     batch_process=True, max_concurrent_judges=10,
     persona_instruction_type=None, assistant_name=None,
-    judge_model="meta-llama/Llama-3.1-8B-Instruct",
+    judge_model="/data2/cmdir/home/ioit107/gpt-oss-20b/gpt-oss-20b",
     version="extract", overwrite=False
 ):
     if os.path.exists(output_path) and not overwrite:
