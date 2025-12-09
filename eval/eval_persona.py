@@ -220,7 +220,7 @@ def load_persona_questions(
         shared_judges[metric] = LocalJudge(
             judge_model=judge_model,
             prompt_template=template,
-            top_k=50
+            top_k=20
         )
     raw_questions = trait_data["questions"]
     questions = []

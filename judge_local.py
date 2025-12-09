@@ -12,7 +12,7 @@ class LocalJudge:
         self,
         judge_model: str,
         prompt_template: str,
-        top_k: int = 50,
+        top_k: int = 20,
         verbose: bool = False,
         **kwargs,
     ):
