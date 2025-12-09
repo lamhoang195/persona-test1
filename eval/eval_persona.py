@@ -112,7 +112,7 @@ class Question():
     def eval_batched(
         questions, model, tokenizer, coef,
         vector=None, layer=None,
-        n_per_question=10,
+        n_per_question=2,
         max_concurrent_judges=10,
         max_tokens=1000,
         steering_type="response"
@@ -248,7 +248,7 @@ def main(
     model, trait, output_path, coef=0,
     vector_path=None, layer=None,
     steering_type="response",
-    max_tokens=1000, n_per_question=10,
+    max_tokens=1000, n_per_question=2,
     batch_process=True, max_concurrent_judges=10,
     persona_instruction_type=None, assistant_name=None,
     judge_model="/data2/cmdir/home/ioit107/gpt-oss-20b/gpt-oss-20b",
