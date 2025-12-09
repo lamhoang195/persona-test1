@@ -29,7 +29,7 @@ def load_jsonl(path):
 def sample_steering(
     model, tokenizer, conversations,
     vector, layer, coef,
-    bs=10, top_p=1, max_tokens=1000, temperature=1,
+    bs=1, top_p=1, max_tokens=1000, temperature=1,
     min_tokens=1, steering_type="response"
 ):
     tokenizer.padding_side = "left"
