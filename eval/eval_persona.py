@@ -206,7 +206,8 @@ def load_persona_questions(
     persona_instructions_type=None,
     assistant_name=None,
     judge_model="/data2/cmdir/home/ioit107/gpt-oss-20b/gpt-oss-20b",
-    version="extract"
+    version="extract",
+    verbose=False
 ):
     trait_data = json.load(
         open(f"data_generation/trait_data_{version}/{trait}.json", "r")
@@ -220,7 +221,8 @@ def load_persona_questions(
         shared_judges[metric] = LocalJudge(
             judge_model=judge_model,
             prompt_template=template,
-            top_k=20
+            top_k=20,
+            verbose=verbose
         )
     raw_questions = trait_data["questions"]
     questions = []
@@ -252,7 +254,8 @@ def main(
     batch_process=True, max_concurrent_judges=10,
     persona_instruction_type=None, assistant_name=None,
     judge_model="/data2/cmdir/home/ioit107/gpt-oss-20b/gpt-oss-20b",
-    version="extract", overwrite=False
+    version="extract", overwrite=False,
+    verbose=False
 ):
     if os.path.exists(output_path) and not overwrite:
         print(f"Output exists — skipping.")
