@@ -74,9 +74,51 @@ class LocalJudge:
 
     def judge(self, **kwargs):
         prompt = self.prompt_template.format(**kwargs)
+        
+        # Phương pháp 1: Generate và parse số từ output (chính xác hơn)
+        score = self.generate_score(prompt)
+        if score is not None:
+            return score
+        
+        # Fallback: Phương pháp logprob (nếu generate thất bại)
         probs = self.logprob_probs(prompt)
-        score = self.aggregate_0_100_score(probs)
-        return score
+        return self.aggregate_0_100_score(probs)
+    
+    def generate_score(self, prompt: str) -> float | None:
+        """Generate response và extract số từ output."""
+        try:
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(device)
+            
+            with torch.no_grad():
+                output = self.model.generate(
+                    **inputs,
+                    max_new_tokens=15,  # Đủ cho "Score: 100" hoặc tương tự
+                    do_sample=False,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+            
+            # Decode phần generated
+            prompt_len = inputs["input_ids"].shape[1]
+            generated = self.tokenizer.decode(
+                output[0][prompt_len:], 
+                skip_special_tokens=True
+            ).strip()
+            
+            if self.verbose:
+                print(f"[DEBUG] Generated: '{generated}'")
+            
+            # Extract số 0-100 từ output
+            match = re.search(r'\b(\d{1,3})\b', generated)
+            if match:
+                score = int(match.group(1))
+                if 0 <= score <= 100:
+                    return float(score)
+            
+            return None
+        except Exception as e:
+            if self.verbose:
+                print(f"[DEBUG] Generate error: {e}")
+            return None
 
     def logprob_probs(self, prompt: str) -> dict:
         try:
