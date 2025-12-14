@@ -203,7 +203,7 @@ def a_or_an(word):
 
 def load_persona_questions(
     trait, temperature=1,
-    persona_instructions_type=None,
+    persona_instructions_type="pos",
     assistant_name=None,
     judge_model="meta-llama/Llama-3.1-8B-Instruct",
     version="extract",
@@ -252,7 +252,7 @@ def main(
     steering_type="response",
     max_tokens=1000, n_per_question=5,
     batch_process=True, max_concurrent_judges=10,
-    persona_instruction_type=None, assistant_name=None,
+    persona_instruction_type="pos", assistant_name=None,
     judge_model="meta-llama/Llama-3.1-8B-Instruct",
     version="extract", overwrite=False,
     verbose=False
