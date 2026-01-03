@@ -44,7 +44,7 @@ class LocalJudge:
             try:
                 model = AutoModelForCausalLM.from_pretrained(
                     judge_model,
-                    dtype=torch.bfloat16,
+                    torch_dtype=torch.bfloat16,
                     trust_remote_code=True,
                     device_map="cuda",
                     attn_implementation="eager"
