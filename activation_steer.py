@@ -30,12 +30,12 @@ class ActivationSteerer:
         self._handle = None # Lưu handle của một hook khi đăng ký một register_hook_forward
     
         # Build steering vector
-        parameter = next(model.parameters()) # Lấy một tham số của model để xác định dtype và device
+        parameter = next(model.parameters()) # Lấy một tham số của model để xác định torch_dtype và device
         self.vector = torch.as_tensor(
             steering_vector,
-            dtype=parameter.dtype,
+            torch_dtype=parameter.torch_dtype,
             device=parameter.device,
-        ) # Chuyển steering_vector thành tensor với dtype và device phù hợp
+        ) # Chuyển steering_vector thành tensor với torch_dtype và device phù hợp
         if self.vector.ndim != 1:
             raise ValueError("steering_vector must be 1-dimensional")
         hidden = getattr(model.config, "hidden_size", None)

@@ -8,7 +8,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 def load_jsonl(file_path):
     with open(file_path, 'r') as f:
         return [json.loads(line) for line in f]
-    
 
 def get_hidden_p_and_r(model, tokenizer, prompts, responses, layer_list=None):
     max_layer = model.config.num_hidden_layers
