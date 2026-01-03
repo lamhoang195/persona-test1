@@ -37,7 +37,7 @@ Output: Mô hình đầy đủ đã merge (không còn tách biệt LoRA adapter
 def _load_and_merge_lora(lora_path: str, dtype, device_map):
     cfg = PeftConfig.from_pretrained(lora_path)
     base = AutoModelForCausalLM.from_pretrained(
-        cfg.base_model_name_or_path, dtype=dtype, device_map=device_map
+        cfg.base_model_name_or_path, torch_dtype=dtype, device_map=device_map
     )
     return PeftModel.from_pretrained(base, lora_path).merge_and_unload()
 
@@ -59,7 +59,7 @@ def _load_tokenizer(path_or_id: str):
 def load_model(model_path: str, dtype=torch.bfloat16):
     if not os.path.exists(model_path):               # ---- Hub ----
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=dtype, device_map="cuda"
+            model_path, torch_dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(model_path)
         return model, tok
@@ -71,7 +71,7 @@ def load_model(model_path: str, dtype=torch.bfloat16):
         tok = _load_tokenizer(model.config._name_or_path)
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, dtype=dtype, device_map="cuda"
+            resolved, torch_dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(resolved)
     return model, tok
@@ -86,7 +86,7 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
         print(f"[Target Model] Loading from HuggingFace Hub: {model_path}")
         print(f"[Target Model] This may take a while...")
         model = AutoModelForCausalLM.from_pretrained(
-            model_path, dtype=dtype, device_map="cuda"
+            model_path, torch_dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(model_path)
         tok.pad_token = tok.eos_token
@@ -106,7 +106,7 @@ def load_model_basic(model_path: str, dtype=torch.bfloat16):
         lora_path = resolved  # Return path for reference, but model is already merged
     else:
         model = AutoModelForCausalLM.from_pretrained(
-            resolved, dtype=dtype, device_map="cuda"
+            resolved, torch_dtype=dtype, device_map="cuda"
         )
         tok = _load_tokenizer(resolved)
         lora_path = None
